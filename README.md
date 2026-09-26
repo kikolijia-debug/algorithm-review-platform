@@ -192,6 +192,18 @@ token 规范化 → k-gram 滚动哈希 → 滑动窗口最小哈希指纹 → �
 
 （登录页点「教师 teacher / 123456」或「学生 stu1 / 123456」即可进入；先点页面右上角的深色模式图标可以看看另一种主题。）
 
+**🖥 完整功能部署（含真实代码编译评测）**：见 [`deploy/install.sh`](deploy/install.sh)
+
+```bash
+# 在目标服务器（Ubuntu 22.04/24.04）上以 root 执行
+git clone https://github.com/kikolijia-debug/algorithm-review-platform.git /opt/algorithm-review-platform
+bash /opt/algorithm-review-platform/deploy/install.sh
+```
+
+脚本会完成：依赖检查 → 代码部署 → systemd 服务（开机自启）→ nginx 反向代理 → 健康检查。
+幂等、可重复执行；接管 80 端口时会把原有站点配置**移出并备份**（不删除文件与进程），
+`nginx -t` 不通过会自动回滚。
+
 仓库包含 GitHub Actions 工作流，会把 `frontend/` 发布到 GitHub Pages。
 静态环境没有 Python 后端，前端会自动切换到**演示模式**：数据来自
 `tools/export_demo.py` 导出的真实快照（同一套算法跑出来的结果），
