@@ -188,6 +188,10 @@ token 规范化 → k-gram 滚动哈希 → 滑动窗口最小哈希指纹 → �
 
 ## 六、在线演示（静态站点）
 
+**🌐 演示地址：<https://kikolijia-debug.github.io/algorithm-review-platform/>**
+
+（登录页点「教师 teacher / 123456」或「学生 stu1 / 123456」即可进入；先点页面右上角的深色模式图标可以看看另一种主题。）
+
 仓库包含 GitHub Actions 工作流，会把 `frontend/` 发布到 GitHub Pages。
 静态环境没有 Python 后端，前端会自动切换到**演示模式**：数据来自
 `tools/export_demo.py` 导出的真实快照（同一套算法跑出来的结果），
