@@ -135,6 +135,12 @@ def build_experiments() -> dict:
 
 def main() -> None:
     db.init_db()
+    # 在 CI（或全新克隆）环境下数据库是空的，需要先灌一遍演示数据
+    if db.is_empty():
+        from backend import seed as seedmod
+
+        print("检测到空数据库，先生成演示数据 ...")
+        seedmod.seed(reset=True, verbose=True)
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     data = build()
     data["experiments_cache"] = build_experiments()
