@@ -60,6 +60,9 @@ if [[ -d "$APP_DIR/.git" ]]; then
   git -C "$APP_DIR" checkout --quiet main
   git -C "$APP_DIR" reset --hard --quiet origin/main
   ok "已更新到 $(git -C "$APP_DIR" rev-parse --short HEAD)"
+elif [[ -f "$APP_DIR/run.py" ]]; then
+  # 支持「先把代码上传/解压到目标目录，再执行本脚本」的离线部署方式
+  ok "检测到已存在的代码目录，跳过克隆（离线部署模式）"
 else
   mkdir -p "$(dirname "$APP_DIR")"
   git clone --quiet "$REPO" "$APP_DIR"

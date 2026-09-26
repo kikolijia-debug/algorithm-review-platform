@@ -32,6 +32,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 
 from .algo.complexity import fit_complexity
@@ -253,7 +254,102 @@ def run_process(
     timeout_s: float = 2.0,
     max_output: int = 1 << 20,
 ) -> dict:
-    """运行子进程并测量墙钟时间与峰值内存。"""
+    """运行子进程并测量墙钟时间与峰值内存（按平台选择实现）。"""
+    if IS_WIN:
+        return _run_process_windows(cmd, cwd, stdin_data, timeout_s, max_output)
+    return _run_process_posix(cmd, cwd, stdin_data, timeout_s, max_output)
+
+
+def _result(ok, timeout, rc, out, err, elapsed_ms, mem_kb, estimated, error=None):
+    d = {
+        "ok": ok,
+        "timeout": timeout,
+        "returncode": rc,
+        "stdout": out,
+        "stderr": err,
+        "time_ms": round(elapsed_ms, 3),
+        "memory_kb": mem_kb,
+        "memory_estimated": estimated,
+    }
+    if error is not None:
+        d["error"] = error
+    return d
+
+
+def _run_process_posix(cmd, cwd, stdin_data, timeout_s, max_output):
+    """POSIX 实现：用 ``os.wait4`` 取得**该子进程自己**的 rusage。
+
+    为什么不能用 ``resource.getrusage(RUSAGE_CHILDREN)``：它返回的是「本进程所有
+    已回收子进程的历史最大值」，会把之前编译阶段 g++（峰值可达 180 MB+）的占用
+    算到每一个学生程序头上，导致所有提交都被误判成 MLE。
+
+    输入/输出走临时文件而不是管道，既避免了大输入下的死锁，也让计时/回收逻辑更简单。
+    """
+    workdir = tempfile.mkdtemp(prefix="ajp_io_")
+    in_p = os.path.join(workdir, "stdin.txt")
+    out_p = os.path.join(workdir, "stdout.txt")
+    err_p = os.path.join(workdir, "stderr.txt")
+    try:
+        with open(in_p, "w", encoding="utf-8", errors="replace") as fi:
+            fi.write(stdin_data or "")
+        with open(in_p, "r", encoding="utf-8", errors="replace") as fi, \
+                open(out_p, "wb") as fo, open(err_p, "wb") as fe:
+            t0 = time.perf_counter()
+            try:
+                proc = subprocess.Popen(
+                    cmd, cwd=cwd, stdin=fi, stdout=fo, stderr=fe,
+                    preexec_fn=os.setsid if hasattr(os, "setsid") else None,
+                )
+            except FileNotFoundError as e:
+                return _result(False, False, None, "", "", 0, 0, True, f"命令不存在: {e}")
+            except Exception as e:  # pragma: no cover
+                return _result(False, False, None, "", "", 0, 0, True, str(e))
+
+            box: dict = {}
+
+            def _waiter():
+                try:
+                    _pid, status, ru = os.wait4(proc.pid, 0)
+                    box["status"] = status
+                    box["ru"] = ru
+                except (ChildProcessError, OSError):
+                    pass
+
+            th = threading.Thread(target=_waiter, daemon=True)
+            th.start()
+            th.join(timeout_s)
+            timed_out = th.is_alive()
+            if timed_out:
+                _kill_tree(proc)
+                th.join(3.0)
+            elapsed_ms = (time.perf_counter() - t0) * 1000.0
+
+        ru = box.get("ru")
+        if ru is not None:
+            mem_kb = float(ru.ru_maxrss) / 1024.0 if sys.platform == "darwin" else float(ru.ru_maxrss)
+            estimated = False
+            rc = os.waitstatus_to_exitcode(box["status"]) if "status" in box else proc.returncode
+        else:
+            mem_kb, estimated, rc = 0.0, True, proc.returncode
+        proc.returncode = rc
+        out = _read_capped(out_p, max_output)
+        err = _read_capped(err_p, 64 * 1024)
+        return _result(not timed_out, timed_out, rc, out, err, elapsed_ms, mem_kb, estimated)
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
+def _read_capped(path: str, limit: int) -> str:
+    try:
+        with open(path, "rb") as f:
+            data = f.read(limit)
+        return data.decode("utf-8", "replace")
+    except OSError:
+        return ""
+
+
+def _run_process_windows(cmd, cwd, stdin_data, timeout_s, max_output):
+    """Windows 实现：``communicate`` + ``GetProcessMemoryInfo`` 读峰值工作集。"""
     t0 = time.perf_counter()
     try:
         proc = subprocess.Popen(
@@ -269,9 +365,9 @@ def run_process(
             preexec_fn=_preexec(),
         )
     except FileNotFoundError as e:
-        return {"ok": False, "error": f"命令不存在: {e}", "time_ms": 0, "memory_kb": 0}
+        return _result(False, False, None, "", "", 0, 0, True, f"命令不存在: {e}")
     except Exception as e:  # pragma: no cover
-        return {"ok": False, "error": str(e), "time_ms": 0, "memory_kb": 0}
+        return _result(False, False, None, "", "", 0, 0, True, str(e))
 
     timeout = False
     try:
@@ -285,24 +381,25 @@ def run_process(
             out, err = "", ""
     except Exception as e:  # pragma: no cover
         _kill_tree(proc)
-        return {"ok": False, "error": str(e), "time_ms": 0, "memory_kb": 0}
+        return _result(False, False, None, "", "", 0, 0, True, str(e))
 
     elapsed_ms = (time.perf_counter() - t0) * 1000.0
     mem_kb, estimated = peak_memory_kb(proc.pid)
-    return {
-        "ok": not timeout,
-        "timeout": timeout,
-        "returncode": proc.returncode,
-        "stdout": (out or "")[:max_output],
-        "stderr": (err or "")[: 64 * 1024],
-        "time_ms": round(elapsed_ms, 3),
-        "memory_kb": mem_kb,
-        "memory_estimated": estimated,
-    }
+    return _result(
+        not timeout, timeout, proc.returncode,
+        (out or "")[:max_output], (err or "")[: 64 * 1024],
+        elapsed_ms, mem_kb, estimated,
+    )
 
 
 def peak_memory_kb(pid: int) -> tuple[float, bool]:
-    """返回 (峰值内存 KB, 是否为估算值)。"""
+    """Windows 专用：读取指定进程的峰值工作集，返回 ``(KB, 是否为估算值)``。
+
+    POSIX 平台不要用这个函数：那里的正确做法是在 ``_run_process_posix`` 中
+    用 ``os.wait4`` 取**该子进程自己**的 ``ru_maxrss``。用
+    ``getrusage(RUSAGE_CHILDREN)`` 会把编译器等高内存子进程的历史峰值算进来，
+    导致所有提交被误判为超内存。
+    """
     if IS_WIN:
         try:
             import ctypes
@@ -338,14 +435,7 @@ def peak_memory_kb(pid: int) -> tuple[float, bool]:
         except Exception:
             pass
         return 0.0, True
-    try:
-        import resource
-
-        usage = resource.getrusage(resource.RUSAGE_CHILDREN)
-        kb = usage.ru_maxrss if sys.platform != "darwin" else usage.ru_maxrss
-        return float(kb), True
-    except Exception:
-        return 0.0, True
+    return 0.0, True
 
 
 # ---------------------------------------------------------------------------
