@@ -15,6 +15,13 @@
     />
     <link rel="stylesheet" href="./css/app.css" />
     <script>
+      // 支持部署在子路径（例如 http://host/algo/）：自动把当前路径前缀识别为 API base，
+      // 这样同一份代码既能跑在根路径，也能挂在 nginx 子路径下。
+      (function () {
+        var m = location.pathname.match(/^(.*\/)(?:index\.html)?$/);
+        var base = m && m[1] ? m[1] : "/";
+        if (base !== "/") window.AJP_API_BASE = base.replace(/\/$/, "");
+      })();
       // 静态演示模式：没有后端时自动切到内置数据引擎（GitHub Pages）；
       // 也可以显式加 ?demo=1 强制预览演示模式。
       window.__AJP_DEMO__ =
