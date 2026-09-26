@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0c1a15" />
+    <meta
+      name="description"
+      content="面向《算法设计与分析》课程的算法评审平台：编程题自动评测、主观题匿名互评、学习过程分析与异常评审检测"
+    />
+    <title>AlgorithmLab · 算法设计与分析课程评审平台</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230f6b4f'/%3E%3Cpath d='M8 21l5-9 4 6 3-4 4 7z' fill='%2379e2b8'/%3E%3C/svg%3E"
+    />
+    <link rel="stylesheet" href="./css/app.css" />
+    <script>
+      // 静态演示模式：没有后端时自动切到内置数据引擎（GitHub Pages）；
+      // 也可以显式加 ?demo=1 强制预览演示模式。
+      window.__AJP_DEMO__ =
+        location.protocol === "file:" ||
+        window.AJP_FORCE_DEMO === true ||
+        new URLSearchParams(location.search).has("demo");
+    </script>
+  </head>
+  <body>
+    <div id="app" class="app-root">
+      <div class="boot">
+        <div class="boot__logo">AL</div>
+        <div class="boot__text">正在加载算法评审平台…</div>
+      </div>
+    </div>
+    <div id="toasts" class="toast-layer"></div>
+    <div id="overlays" class="overlay-layer"></div>
+    <script type="module" src="./js/app.js"></script>
+  </body>
+</html>

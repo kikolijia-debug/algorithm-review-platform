@@ -1,0 +1,55 @@
+name: Deploy static demo to GitHub Pages
+
+# 把 frontend/ 作为纯静态站点发布到 GitHub Pages。
+# 静态环境没有 Python 后端，前端会自动进入「演示模式」，
+# 数据来自 frontend/demo/dataset.json（由 tools/export_demo.py 从真实数据库导出）。
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run algorithm unit tests
+        run: python tests/run_tests.py
+
+      - name: Seed demo database and export static dataset
+        run: |
+          python tools/export_demo.py
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload static site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: frontend
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

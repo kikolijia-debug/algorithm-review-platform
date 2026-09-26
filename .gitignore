@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# 运行期生成的数据（可由 backend/seed.py 重新生成）
+backend/data/*.db
+backend/data/*.db-wal
+backend/data/*.db-shm
+
+# 本地日志
+*.log
+.server.*.log
+.static.*.log
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 临时文件
+*.tmp
+.ref_cache.css
