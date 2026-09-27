@@ -223,8 +223,77 @@ def main() -> int:
             check("修改作业", f"/api/assignments/{aid}", "PUT",
                   {"description": "功能审计临时作业（已修改）"}, probe=lambda p: p.get("ok"))
 
+    # ---------------------------------------------------------- 班级管理
+    section("5. 班级管理")
+    cls_list = d(check("班级列表", "/api/classes", role="teacher"), "data", default=[])
+    check("班级列表包含人数统计", "/api/classes", role="teacher",
+          probe=lambda p: all("member_count" in c for c in p.get("data", [])))
+    check("未分班学生列表", "/api/classes/unassigned", role="teacher",
+          probe=lambda p: isinstance(p.get("data"), list))
+    check("学生无权新建班级", "/api/classes", "POST", {"name": "x"}, role="student", want=403)
+
+    if not READONLY and cls_list:
+        base_cls = max(cls_list, key=lambda c: c["member_count"])
+        roster = d(call(f"/api/classes/{base_cls['id']}/students", role="teacher")[1],
+                   "data", "students", default=[])
+        picked = [s["id"] for s in roster[:3]]
+        orig_count = base_cls["member_count"]
+
+        ca = check("新建班级", "/api/classes", "POST",
+                   {"name": f"[审计] 班级A {STAMP}", "description": "功能审计临时班级"},
+                   role="teacher", probe=lambda p: p.get("data", {}).get("id"))
+        ca_id = d(ca, "data", "id")
+        check("新建班级自动生成邀请码", "/api/classes", role="teacher",
+              probe=lambda p: any(c["id"] == ca_id and c.get("invite_code") for c in p["data"]))
+        check("班级重名被拒", "/api/classes", "POST",
+              {"name": f"[审计] 班级A {STAMP}"}, role="teacher", want=409)
+        check("重命名班级", f"/api/classes/{ca_id}", "PUT",
+              {"name": f"[审计] 班级A改名 {STAMP}"}, role="teacher", probe=lambda p: p.get("ok"))
+        check("重命名已生效", "/api/classes", role="teacher",
+              probe=lambda p: any(c["id"] == ca_id and "改名" in c["name"] for c in p["data"]))
+
+        if picked:
+            check("添加学生到班级", f"/api/classes/{ca_id}/students", "POST",
+                  {"user_ids": picked}, role="teacher",
+                  probe=lambda p: d(p, "data", "added") == len(picked))
+            check("班级成员列表", f"/api/classes/{ca_id}/students", role="teacher",
+                  probe=lambda p: len(d(p, "data", "students", default=[])) == len(picked))
+            check("学生的班级名已同步", "/api/users", role="teacher",
+                  probe=lambda p: any(u["id"] == picked[0] and u["class_name"]
+                                      and "审计" in u["class_name"] for u in p["data"]))
+            check("移出班级成员", f"/api/classes/{ca_id}/students/{picked[0]}", "DELETE", {},
+                  role="teacher", probe=lambda p: p.get("ok"))
+            check("移出后成员减少", f"/api/classes/{ca_id}/students", role="teacher",
+                  probe=lambda p: len(d(p, "data", "students", default=[])) == len(picked) - 1)
+
+        # 删除班级：学生回到原来的班级
+        check("删除班级（学生转回原班）", f"/api/classes/{ca_id}", "DELETE", {},
+              role="teacher", probe=lambda p: p.get("ok"))
+        check("班级已删除", "/api/classes", role="teacher",
+              probe=lambda p: all(c["id"] != ca_id for c in p["data"]))
+        if picked:
+            check("把学生转回原班级", f"/api/classes/{base_cls['id']}/students", "POST",
+                  {"user_ids": picked}, role="teacher", probe=lambda p: p.get("ok"))
+            check("原班级人数恢复", "/api/classes", role="teacher",
+                  probe=lambda p: any(c["id"] == base_cls["id"] and c["member_count"] == orig_count
+                                      for c in p["data"]))
+
+        # 删除班级：mode=move 先转移再删除
+        cb = check("新建班级B", "/api/classes", "POST",
+                   {"name": f"[审计] 班级B {STAMP}"}, role="teacher",
+                   probe=lambda p: p.get("data", {}).get("id"))
+        cb_id = d(cb, "data", "id")
+        if cb_id and picked:
+            call(f"/api/classes/{cb_id}/students", "POST", {"user_ids": picked[:1]}, "teacher")
+            check("删除班级（mode=move 转移到原班）",
+                  f"/api/classes/{cb_id}?mode=move&target_id={base_cls['id']}", "DELETE", {},
+                  role="teacher", probe=lambda p: d(p, "data", "mode") == "move")
+            check("转移后原班级人数仍正确", "/api/classes", role="teacher",
+                  probe=lambda p: any(c["id"] == base_cls["id"] and c["member_count"] == orig_count
+                                      for c in p["data"]))
+
     # ---------------------------------------------------------- 自动评测
-    section("5. 自动评测引擎")
+    section("6. 自动评测引擎")
     judge_pid = d(temp_problem, "data", "id") if temp_problem else (probs[0]["id"] if probs else None)
     # 审计临时题是「求 n 个整数之和」；只读模式下改用题库第 1 题（最大子段和）
     if temp_problem:
@@ -232,19 +301,20 @@ def main() -> int:
               "for(int i=0;i<n;i++){scanf(\"%lld\",&x);s+=x;}printf(\"%lld\\n\",s);return 0;}")
         WA = ("#include <bits/stdc++.h>\nint main(){int n;scanf(\"%d\",&n);long long s=0,x;"
               "for(int i=0;i<n;i++){scanf(\"%lld\",&x);s+=x;}printf(\"%lld\\n\",s+1);return 0;}")
+        PY = ("import sys\nd = sys.stdin.read().split()\nprint(sum(map(int, d[1:1+int(d[0])])))\n")
     else:
         AC = ("#include <bits/stdc++.h>\nint main(){int n;scanf(\"%d\",&n);long long b=LLONG_MIN,c=0,x;"
               "for(int i=0;i<n;i++){scanf(\"%lld\",&x);c=(i==0)?x:std::max(x,c+x);b=std::max(b,c);}"
               "printf(\"%lld\\n\",b);return 0;}")
         WA = ("#include <bits/stdc++.h>\nint main(){int n;scanf(\"%d\",&n);printf(\"0\\n\");return 0;}")
+        PY = ("import sys\nif __name__ == \"__main__\":\n"
+              "    d = sys.stdin.read().split()\n    n = int(d[0])\n"
+              "    a = list(map(int, d[1:1+n]))\n    best = cur = a[0]\n"
+              "    for x in a[1:]:\n        cur = max(x, cur + x)\n        best = max(best, cur)\n"
+              "    print(best)\n")
     TLE = "#include <bits/stdc++.h>\nint main(){volatile long long k=0;while(true)k++;return 0;}"
     RE = "#include <bits/stdc++.h>\nint main(){int*p=nullptr;*p=1;return 0;}"
     CE = "this is not c++ at all"
-    PY = ("import sys\nif __name__ == \"__main__\":\n"
-          "    d = sys.stdin.read().split()\n    n = int(d[0])\n"
-          "    a = list(map(int, d[1:1+n]))\n    best = cur = a[0]\n"
-          "    for x in a[1:]:\n        cur = max(x, cur + x)\n        best = max(best, cur)\n"
-          "    print(best)\n")
 
     if judge_pid:
         check("运行样例（不记入历史）", "/api/run", "POST",
@@ -304,7 +374,7 @@ def main() -> int:
               probe=lambda p: d(p, "data", "total") is not None)
 
     # ---------------------------------------------------------- 主观题与互评
-    section("6. 主观题提交与匿名互评")
+    section("7. 主观题提交与匿名互评")
     subj_problems = [p for p in probs if p["type"] != "programming"]
     subj_id = subj_problems[0]["id"] if subj_problems else None
     existing = check("主观题列表（学生）", "/api/subjective?mine=1", role="student",
@@ -358,7 +428,7 @@ def main() -> int:
                   probe=lambda p: d(p, "data", "content") is not None)
 
     # ---------------------------------------------------------- 异常检测
-    section("7. 异常评审检测与处理")
+    section("8. 异常评审检测与处理")
     an = check("异常列表", "/api/anomalies?assignment_id=4", role="teacher",
                probe=lambda p: d(p, "data", "counts") is not None)
     items = d(an, "data", "anomalies", default=[])
@@ -376,7 +446,7 @@ def main() -> int:
             check("按状态筛选异常", "/api/anomalies?status=dismissed", role="teacher")
 
     # ---------------------------------------------------------- 学习分析
-    section("8. 学习过程分析")
+    section("9. 学习过程分析")
     check("班级总览", "/api/analytics/class", role="teacher",
           probe=lambda p: d(p, "data", "overview", "submissions") is not None)
     check("带作业筛选的班级总览", "/api/analytics/class?assignment_id=1", role="teacher")
@@ -396,7 +466,7 @@ def main() -> int:
     check("提交时间线", "/api/analytics/timeline", role="teacher")
 
     # ---------------------------------------------------------- 相似度 / 实验
-    section("9. 相似度检测与算法实验台")
+    section("10. 相似度检测与算法实验台")
     check("代码相似度检测", "/api/similarity?problem_id=1", role="teacher",
           probe=lambda p: d(p, "data", "pairs") is not None)
     check("实验历史", "/api/experiments", role="teacher",
@@ -418,7 +488,7 @@ def main() -> int:
         skip("运行实验：复杂度实测", "需要真实编译运行约 15 秒，加 --with-complexity 才执行")
 
     # ---------------------------------------------------------- 通知 / 看板
-    section("10. 通知与两端看板")
+    section("11. 通知与两端看板")
     check("通知列表", "/api/notices", role="student")
     if not READONLY:
         check("发布通知", "/api/notices", "POST",
@@ -432,7 +502,7 @@ def main() -> int:
     # ---------------------------------------------------------- 清理
     if not READONLY and temp_problem:
         pid_new = d(temp_problem, "data", "id")
-        section("11. 清理测试数据")
+        section("12. 清理测试数据")
         check("删除测试题目", f"/api/problems/{pid_new}", "DELETE", {},
               role="teacher", probe=lambda p: p.get("ok"))
         print(f"     （临时作业 [审计] 作业 {STAMP} 保留；如需彻底清理请重跑 backend/seed.py）")

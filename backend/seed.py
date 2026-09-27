@@ -93,6 +93,7 @@ class Seeder:
                 "test_cases", "assignments", "assignment_problems", "submissions",
                 "test_results", "subjective_submissions", "allocations", "reviews",
                 "anomalies", "events", "experiments", "notices", "settings",
+                "sessions", "classes",
             ]:
                 conn.execute(f"DELETE FROM {t}")
             conn.execute("DELETE FROM sqlite_sequence")
@@ -161,12 +162,34 @@ class Seeder:
                 db.now(),
             ),
         )
-        members = [(cid, teacher["id"], "teacher", db.now()), (cid, ids["ta"]["id"], "ta", db.now())]
-        members += [(cid, s["id"], "student", db.now()) for s in ids["students"]]
+        members = [
+            (cid, teacher["id"], "teacher", None, db.now()),
+            (cid, ids["ta"]["id"], "ta", None, db.now()),
+        ]
         db.exmany(
-            "INSERT INTO course_members(course_id,user_id,role,joined_at) VALUES(?,?,?,?)", members
+            "INSERT INTO course_members(course_id,user_id,role,class_id,joined_at) VALUES(?,?,?,?,?)",
+            members,
         )
-        self.log(f"  课程 #{cid} 建立，成员 {len(members)} 人")
+        # 建立班级并把学生关联进去（班级名沿用学生身上的 class_name）
+        class_ids = {}
+        for name in sorted({s["class_name"] for s in ids["students"] if s.get("class_name")}):
+            code = "".join(ch for ch in name if ch.isdigit())[-4:] or name[:2]
+            class_ids[name] = db.ex(
+                "INSERT INTO classes(course_id,name,description,invite_code,created_at) "
+                "VALUES(?,?,?,?,?)",
+                (cid, name, "", ("CLS" + code.upper())[:8], db.now()),
+            )
+        db.exmany(
+            "INSERT INTO course_members(course_id,user_id,role,class_id,joined_at) VALUES(?,?,?,?,?)",
+            [
+                (cid, s["id"], "student", class_ids.get(s.get("class_name")), db.now())
+                for s in ids["students"]
+            ],
+        )
+        self.log(
+            f"  课程 #{cid} 建立，成员 {len(members) + len(ids['students'])} 人，"
+            f"班级 {len(class_ids)} 个"
+        )
         return {"course_id": cid}
 
     # ------------------------------------------------------------------

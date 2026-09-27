@@ -58,8 +58,18 @@ CREATE TABLE IF NOT EXISTS course_members (
     course_id INTEGER NOT NULL,
     user_id   INTEGER NOT NULL,
     role      TEXT NOT NULL,
+    class_id  INTEGER,
     joined_at TEXT NOT NULL,
     UNIQUE(course_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS classes (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    course_id   INTEGER NOT NULL,
+    name        TEXT NOT NULL,
+    description TEXT,
+    invite_code TEXT,
+    created_at  TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS knowledge_points (
@@ -306,6 +316,41 @@ def get_conn() -> sqlite3.Connection:
 def init_db() -> None:
     conn = get_conn()
     conn.executescript(SCHEMA)
+    conn.commit()
+    migrate(conn)
+
+
+def migrate(conn: sqlite3.Connection) -> None:
+    """轻量迁移：兼容早期版本的数据库（不需要删库重建）。
+
+    1. 给 ``course_members`` 补上 ``class_id`` 列；
+    2. 把历史数据里的 ``users.class_name`` 反向补齐成 ``classes`` 记录并建立关联，
+       升级后既保留原有班级，也能在新页面里正常增删管理。
+    """
+    cols = [r["name"] for r in conn.execute("PRAGMA table_info(course_members)")]
+    if "class_id" not in cols:
+        conn.execute("ALTER TABLE course_members ADD COLUMN class_id INTEGER")
+        conn.commit()
+
+    # 仅在 classes 表为空时反向补齐，避免覆盖教师后来手工调整的结果
+    if conn.execute("SELECT COUNT(*) c FROM classes").fetchone()["c"]:
+        return
+    rows = conn.execute(
+        "SELECT DISTINCT m.course_id AS course_id, u.class_name AS class_name "
+        "FROM course_members m JOIN users u ON u.id=m.user_id "
+        "WHERE m.role='student' AND u.class_name IS NOT NULL AND u.class_name<>''"
+    ).fetchall()
+    for r in rows:
+        cur = conn.execute(
+            "INSERT INTO classes(course_id,name,description,invite_code,created_at) "
+            "VALUES(?,?,?,?,?)",
+            (r["course_id"], r["class_name"], "", None, now()),
+        )
+        conn.execute(
+            "UPDATE course_members SET class_id=? WHERE course_id=? AND role='student' "
+            "AND user_id IN (SELECT id FROM users WHERE class_name=?)",
+            (cur.lastrowid, r["course_id"], r["class_name"]),
+        )
     conn.commit()
 
 

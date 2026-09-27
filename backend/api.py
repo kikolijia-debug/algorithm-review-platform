@@ -143,11 +143,22 @@ def api_register(ctx):
     course = db.q1("SELECT * FROM courses WHERE UPPER(invite_code)=?", (code,)) if code else None
     if not course:
         course = db.q1("SELECT * FROM courses ORDER BY id LIMIT 1")
+    # 邀请码也可以指向某个班级，注册后直接进班
+    cls = db.q1("SELECT * FROM classes WHERE UPPER(invite_code)=?", (code,)) if code else None
+    if cls and (not course or cls["course_id"] != course["id"]):
+        course = db.q1("SELECT * FROM courses WHERE id=?", (cls["course_id"],)) or course
     if course:
         db.ex(
-            "INSERT OR IGNORE INTO course_members(course_id,user_id,role,joined_at) VALUES(?,?,?,?)",
-            (course["id"], uid, role, db.now()),
+            "INSERT OR IGNORE INTO course_members(course_id,user_id,role,class_id,joined_at) "
+            "VALUES(?,?,?,?,?)",
+            (course["id"], uid, role, cls["id"] if cls else None, db.now()),
         )
+        if cls:
+            db.ex(
+                "UPDATE course_members SET class_id=? WHERE course_id=? AND user_id=?",
+                (cls["id"], course["id"], uid),
+            )
+            db.ex("UPDATE users SET class_name=? WHERE id=?", (cls["name"], uid))
     u = dict(db.q1("SELECT * FROM users WHERE id=?", (uid,)))
     return ok({"token": create_session(u), "user": public_user(u)})
 
@@ -1176,3 +1187,6 @@ def api_review_results(ctx):
 
 # 注册扩展接口（学习分析、异常检测、实验台、看板）
 from . import api_ext  # noqa: E402,F401
+
+# 班级管理接口
+from . import api_classes  # noqa: E402,F401

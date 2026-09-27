@@ -15,6 +15,7 @@ import { renderProblem } from './pages/problem.js';
 import * as S from './pages/student.js';
 import * as T from './pages/teacher-core.js';
 import * as TI from './pages/teacher-insight.js';
+import * as TC from './pages/teacher-classes.js';
 
 /* --------------------------------------------------------------- 导航表 */
 
@@ -40,6 +41,7 @@ const NAV = {
         { label: '作业管理', path: '/teacher/assignments', icon: icon.book },
         { label: '题库管理', path: '/problems', icon: icon.code },
         { label: '提交与评测', path: '/teacher/submissions', icon: icon.chart },
+        { label: '班级管理', path: '/teacher/classes', icon: icon.users },
       ],
     },
     {
@@ -134,6 +136,7 @@ function topbar() {
     '/teacher/assignments': ['教学', '作业管理'],
     '/teacher/assignment': ['教学', '作业管理', '作业详情'],
     '/teacher/submissions': ['教学', '提交与评测'],
+    '/teacher/classes': ['教学', '班级管理'],
     '/teacher/analytics': ['学习分析', '学习过程分析'],
     '/teacher/ability': ['学习分析', '能力与难度估计'],
     '/teacher/reviews': ['互评治理', '评审过程管理'],
@@ -370,6 +373,7 @@ function registerRoutes() {
   P('/teacher/assignments', T.loadAssignments, T.renderAssignments);
   P('/teacher/assignment/:id', T.loadAssignmentDetail, T.renderAssignmentDetail);
   P('/teacher/submissions', T.loadTeacherSubmissions, T.renderTeacherSubmissions);
+  P('/teacher/classes', TC.loadClasses, TC.renderClasses);
   P('/teacher/analytics', TI.loadAnalytics, TI.renderAnalytics);
   P('/teacher/ability', TI.loadAbility, TI.renderAbility);
   P('/teacher/reviews', TI.loadReviewAdmin, TI.renderReviewAdmin);

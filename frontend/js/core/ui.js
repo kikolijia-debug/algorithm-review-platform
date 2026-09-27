@@ -346,7 +346,8 @@ export function drawer(title, content, { width = 560, onClose } = {}) {
   };
   const box = h(
     'div',
-    { class: 'drawer', style: { width: width + 'px' } },
+    // 用 min() 限制在视口内：窄窗口下抽屉不会溢出屏幕导致按钮点不到
+    { class: 'drawer', style: { width: `min(${width}px, 96vw)` } },
     h(
       'header',
       { class: 'drawer__head' },
