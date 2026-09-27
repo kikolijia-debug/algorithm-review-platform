@@ -341,10 +341,15 @@ def migrate(conn: sqlite3.Connection) -> None:
         "WHERE m.role='student' AND u.class_name IS NOT NULL AND u.class_name<>''"
     ).fetchall()
     for r in rows:
+        import hashlib
+
+        code = hashlib.md5(
+            ("%s-%s" % (r["course_id"], r["class_name"])).encode("utf-8")
+        ).hexdigest()[:6].upper()
         cur = conn.execute(
             "INSERT INTO classes(course_id,name,description,invite_code,created_at) "
             "VALUES(?,?,?,?,?)",
-            (r["course_id"], r["class_name"], "", None, now()),
+            (r["course_id"], r["class_name"], "", code, now()),
         )
         conn.execute(
             "UPDATE course_members SET class_id=? WHERE course_id=? AND role='student' "
