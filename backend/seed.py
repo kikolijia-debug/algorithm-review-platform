@@ -34,6 +34,18 @@ CACHE_PATH = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "data", "template_verdicts.json"
 )
 
+#: 编程题默认的代码互评评分细则（与 backend/api.py 中的保持同一套维度）
+CODE_RUBRIC = [
+    {"key": "correctness", "name": "正确性", "max": 35,
+     "desc": "算法是否正确，边界情况（n=1、极值、重复元素）是否处理"},
+    {"key": "complexity", "name": "效率与复杂度", "max": 25,
+     "desc": "是否达到题目要求的复杂度，有无不必要的重复计算"},
+    {"key": "clarity", "name": "代码清晰度", "max": 20,
+     "desc": "命名、结构、注释是否清晰易读"},
+    {"key": "robustness", "name": "健壮性", "max": 20,
+     "desc": "是否存在溢出、越界、未初始化等隐患"},
+]
+
 SEED = 20260926
 
 KNOWLEDGE_POINTS = [
@@ -108,6 +120,7 @@ class Seeder:
         ids.update(self._assignments(ids))
         self._submissions(ids)
         self._peer_review(ids)
+        self._code_peer_review(ids)
         self._events(ids)
         self._notices(ids)
         self.log("演示数据生成完成")
@@ -219,7 +232,8 @@ class Seeder:
                 (
                     cid, p["title"], "programming", p["difficulty"], db.jdumps(p["topics"]),
                     p["statement"], p["input_format"], p["output_format"], p["constraints"],
-                    db.jdumps(samples), p["time_limit_ms"], p["memory_limit_mb"], 100, "[]",
+                    db.jdumps(samples), p["time_limit_ms"], p["memory_limit_mb"], 100,
+                    db.jdumps(CODE_RUBRIC),
                     teacher, db.now(), db.jdumps(p.get("tags", [])),
                 ),
             )
@@ -301,6 +315,12 @@ class Seeder:
                      "KMP 与二分答案的入门到进阶练习，鼓励反复提交直到全部通过。",
                      [by_key["KMP"], by_key["CUT"]],
                      db.days_ago(2, 8, 0), db.days_ahead(8, 23, 59), None, "published"),
+            # 代码互评：对象是同学写的代码，走同一套分配/聚合/异常检测流程
+            "a7": mk("代码互评：图算法实现评析",
+                     "对同学提交的代码进行匿名评审，从正确性、复杂度、清晰度与健壮性四个维度打分。",
+                     [by_key["MAZE"], by_key["DIJKSTRA"]],
+                     db.days_ago(18, 8, 0), db.days_ago(11, 23, 59), db.days_ago(5, 23, 59),
+                     "closed", peer=1, k=3, maxload=4),
         }
         self.log("  作业 6 次")
         return {"assignments": A}
@@ -536,6 +556,83 @@ class Seeder:
         self.log("  Peer Review 分配与评分完成")
 
     # ------------------------------------------------------------------
+    def _code_peer_review(self, ids) -> None:
+        """代码互评：对象是同学写的代码，与主观题互评走同一套流程。
+
+        评审基准分 = 0.5 × 自动评测得分 + 0.5 × 主观质量（由能力值生成），
+        再叠加评审者宽严偏差与噪声——这样「自动评测」与「人工评审」既相关又不重合，
+        正好用来演示异常检测与可信度加权。
+        """
+        rng = self.rng
+        aid = ids["assignments"]["a7"]
+        studs = ids["students"]
+        abilities = ids["abilities"]
+        klass = {s["id"]: s["class_name"] for s in studs}
+        tw = db.q1("SELECT reviews_per_submission,max_load FROM assignments WHERE id=?", (aid,))
+        k, maxload = tw["reviews_per_submission"], tw["max_load"]
+        bias = {s["id"]: rng.gauss(0, 2.6) for s in studs}
+        noise = {s["id"]: abs(rng.gauss(4.0, 1.3)) + 1.2 for s in studs}
+        probs = db.rows2dicts(db.q(
+            "SELECT p.* FROM assignment_problems ap JOIN problems p ON p.id=ap.problem_id "
+            "WHERE ap.assignment_id=? ORDER BY ap.order_index", (aid,)))
+        for prob in probs:
+            authors = [r["user_id"] for r in db.q(
+                "SELECT DISTINCT user_id FROM submissions WHERE problem_id=? ORDER BY user_id",
+                (prob["id"],))]
+            if len(authors) < 2:
+                continue
+            params = AS.AllocationParams(
+                reviews_per_submission=k, max_load=maxload, seed=SEED + aid * 7 + prob["id"])
+            res = AS.allocate_mcmf(authors, authors, klass, params)
+            db.exmany(
+                "INSERT OR IGNORE INTO allocations(assignment_id,problem_id,author_id,reviewer_id,"
+                "status,round,weight,is_anomaly,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
+                [(aid, prob["id"], a, r, "pending", 1, 1.0, 0, db.now())
+                 for (a, r) in res.allocations],
+            )
+            # 每位作者最好的一次提交（评审对象）
+            best = {}
+            for row in db.q(
+                "SELECT * FROM submissions WHERE problem_id=? "
+                "ORDER BY (verdict='Accepted') DESC, score DESC, id DESC", (prob["id"],)):
+                best.setdefault(row["user_id"], row)
+            review_rows = []
+            for al in db.rows2dicts(db.q(
+                    "SELECT * FROM allocations WHERE assignment_id=? AND problem_id=?",
+                    (aid, prob["id"]))):
+                a, r = al["author_id"], al["reviewer_id"]
+                # 留出约 15% 的分配不评，模拟「还有同学没完成互评」，
+                # 这样学生端能真实看到待完成的代码互评任务
+                if rng.random() < 0.15:
+                    continue
+                sub = best.get(a)
+                auto = float(sub["score"]) if sub else 40.0
+                style = 62 + 13 * abilities[a] + rng.gauss(0, 6)
+                total = max(0.0, min(100.0, 0.5 * auto + 0.5 * style + bias[r] + rng.gauss(0, noise[r])))
+                review_rows.append(
+                    (al["id"], aid, prob["id"], sub["id"] if sub else None, r, a,
+                     db.jdumps(self._rubric(total, rng)), round(total, 2),
+                     self._comment(total, rng),
+                     round(max(30.0, rng.gauss(380, 110))), None, db.now(), 0, None)
+                )
+            if review_rows:
+                db.exmany(
+                    "INSERT INTO reviews(allocation_id,assignment_id,problem_id,submission_id,"
+                    "reviewer_id,author_id,scores,total,comment,duration_sec,started_at,"
+                    "submitted_at,flagged,flag_reason) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    review_rows,
+                )
+            # 只有真正提交了评审的分配才标记为完成，其余保持 pending
+            db.ex(
+                "UPDATE allocations SET status='done' WHERE assignment_id=? AND problem_id=? "
+                "AND id IN (SELECT allocation_id FROM reviews "
+                "           WHERE assignment_id=? AND problem_id=?)",
+                (aid, prob["id"], aid, prob["id"]),
+            )
+            self._aggregate(aid, prob["id"])
+        self.log("  代码互评（基于学生代码的评审）完成")
+
+    # ------------------------------------------------------------------
     # 辅助：时间与文本
     # ------------------------------------------------------------------
     @staticmethod
@@ -677,12 +774,23 @@ class Seeder:
             }
         em = AG.aggregate(rl, "reliability_em")
         conn = db.get_conn()
+        is_code = bool(db.q1(
+            "SELECT id FROM problems WHERE id=? AND type='programming'", (pid,)))
         for uid, sc in em["scores"].items():
-            conn.execute(
-                "UPDATE subjective_submissions SET status='done', final_score=?, methods=?, "
-                "updated_at=? WHERE assignment_id=? AND problem_id=? AND user_id=?",
-                (round(sc, 2), db.jdumps(methods), db.now(), aid, pid, uid),
-            )
+            if is_code:
+                conn.execute(
+                    "UPDATE submissions SET review_score=?, review_methods=? WHERE id=("
+                    "  SELECT id FROM submissions WHERE problem_id=? AND user_id=? "
+                    "  ORDER BY (verdict='Accepted') DESC, score DESC, id DESC LIMIT 1)",
+                    (round(sc, 2), db.jdumps(methods), pid, uid),
+                )
+            else:
+                conn.execute(
+                    "UPDATE subjective_submissions SET status='done', final_score=?, methods=?, "
+                    "updated_at=? WHERE assignment_id=? AND problem_id=? AND user_id=?",
+                    (round(sc, 2), db.jdumps(methods), db.now(), aid, pid, uid),
+                )
+        conn.commit()
         det = AN.detect(rl)
         rows2 = [
             (aid, a["type"], a["level"], a.get("reviewer_id"), a.get("submission_id"),

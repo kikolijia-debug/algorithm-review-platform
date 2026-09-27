@@ -132,6 +132,7 @@ function topbar() {
     '/student/reviews': ['学习动态', '互评中心'],
     '/student/subjective': ['学习动态', '我的主观题'],
     '/student/report': ['学习动态', '学习报告'],
+    '/student/assignment': ['学习动态', '作业详情'],
     '/teacher': ['教学看板'],
     '/teacher/assignments': ['教学', '作业管理'],
     '/teacher/assignment': ['教学', '作业管理', '作业详情'],
@@ -145,15 +146,28 @@ function topbar() {
     '/teacher/experiments': ['算法实验', '算法实验台'],
   };
   const key = Object.keys(map).sort((a, b) => b.length - a.length).find((k) => p.startsWith(k));
-  (map[key] || ['AlgorithmLab']).forEach((c, i, arr) => {
+  const chain = map[key] || ['AlgorithmLab'];
+  // 面包屑可点击：非最后一级点回上一级
+  const parent = backTarget(p);
+  chain.forEach((c, i, arr) => {
     if (i) crumbs.push(h('span', {}, '/'));
-    crumbs.push(i === arr.length - 1 ? h('b', {}, c) : h('span', {}, c));
+    if (i === arr.length - 1) crumbs.push(h('b', {}, c));
+    else if (i === arr.length - 2 && parent)
+      crumbs.push(h('button', { class: 'crumb-link', onclick: () => router.navigate(parent) }, c));
+    else crumbs.push(h('span', {}, c));
   });
   const openAnomalies = state.openAnomalies || 0;
   return h(
     'header',
     { class: 'topbar' },
     h('button', { class: 'icon-btn nav-toggle', title: '菜单', onclick: () => document.querySelector('.shell').classList.toggle('nav-open') }, '☰'),
+    backTarget(p)
+      ? h('button', {
+          class: 'btn btn--ghost btn--sm',
+          title: '返回上一级',
+          onclick: () => router.navigate(backTarget(p)),
+        }, '← 返回' + (BACK_LABEL[backTarget(p)] || ''))
+      : null,
     h('div', { class: 'topbar__crumbs' }, ...crumbs),
     h('div', { class: 'topbar__spacer' }),
     // 演示数据提示：数据由 seed 脚本生成时明确标注，避免被误当成真实班级数据
@@ -229,6 +243,32 @@ function openUserMenu(e) {
 export function currentPath() {
   return (location.hash.replace(/^#/, '') || '/').split('?')[0];
 }
+
+/** 页面层级表：子页面 → 它的上一级，用于顶栏「返回」与面包屑跳转。 */
+const BACK_MAP = [
+  [/^\/problem\//, '/problems'],
+  [/^\/student\/submissions\/.+/, '/student/submissions'],
+  [/^\/student\/reviews\/.+/, '/student/reviews'],
+  [/^\/student\/assignment\/.+/, '/student'],
+  [/^\/teacher\/assignment\/.+/, '/teacher/assignments'],
+  [/^\/student\/(submissions|reviews|subjective|report)$/, '/student'],
+  [/^\/teacher\/(assignments|submissions|classes|analytics|ability|reviews|anomalies|similarity|experiments)$/, '/teacher'],
+];
+
+/** 返回目标；顶级页面返回 null（不显示返回按钮）。 */
+export function backTarget(path) {
+  for (const [rx, to] of BACK_MAP) if (rx.test(path)) return to;
+  return null;
+}
+
+const BACK_LABEL = {
+  '/problems': '题库',
+  '/student': '学习动态',
+  '/teacher': '教学看板',
+  '/student/submissions': '我的提交',
+  '/student/reviews': '互评中心',
+  '/teacher/assignments': '作业管理',
+};
 
 /** 「演示数据」说明弹窗：把真实与模拟的部分讲清楚。 */
 function showDemoNotice() {
@@ -361,6 +401,7 @@ function registerRoutes() {
   P('/student/reviews/:id', S.loadReviewTask, S.renderReviewTask);
   P('/student/subjective', S.loadSubjective, S.renderSubjective);
   P('/student/report', S.loadReport, S.renderReport);
+  P('/student/assignment/:id', S.loadStudentAssignment, S.renderStudentAssignment);
 
   // 共用
   P('/problems', (ctx) => S.loadProblemList(ctx), (d, c) => S.renderProblemList(d, c, router.currentRoute()));

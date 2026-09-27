@@ -157,7 +157,9 @@ CREATE TABLE IF NOT EXISTS submissions (
     compile_message TEXT,
     attempt_no    INTEGER DEFAULT 1,
     detail        TEXT DEFAULT '{}',
-    complexity    TEXT
+    complexity    TEXT,
+    review_score  REAL,                     -- 代码互评的聚合得分（评审结束后写入）
+    review_methods TEXT DEFAULT '{}'        -- 各聚合方法下的代码互评得分
 );
 
 CREATE TABLE IF NOT EXISTS test_results (
@@ -331,6 +333,12 @@ def migrate(conn: sqlite3.Connection) -> None:
     if "class_id" not in cols:
         conn.execute("ALTER TABLE course_members ADD COLUMN class_id INTEGER")
         conn.commit()
+
+    sub_cols = [r["name"] for r in conn.execute("PRAGMA table_info(submissions)")]
+    for col, ddl in (("review_score", "REAL"), ("review_methods", "TEXT DEFAULT '{}'")):
+        if col not in sub_cols:
+            conn.execute(f"ALTER TABLE submissions ADD COLUMN {col} {ddl}")
+    conn.commit()
 
     # 仅在 classes 表为空时反向补齐，避免覆盖教师后来手工调整的结果
     if conn.execute("SELECT COUNT(*) c FROM classes").fetchone()["c"]:

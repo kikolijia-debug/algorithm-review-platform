@@ -97,7 +97,7 @@ export function renderDashboard({ dash, knowledge, report }) {
                 'div',
                 { class: 'list-row__side' },
                 U.countdown(a.due_at),
-                h('a', { class: 'btn btn--soft btn--sm', href: `#/teacher/assignment/${a.id}` }, '继续')
+                h('a', { class: 'btn btn--soft btn--sm', href: `#/student/assignment/${a.id}` }, '继续')
               )
             )
           )
@@ -422,8 +422,23 @@ export function renderSubmissionDetail({ s }) {
     ),
     s.compile_message ? U.card(U.cardHead('编译信息'), U.codeBlock(s.compile_message, 'text')) : null,
     U.card(
-      U.cardHead('源代码', { sub: `${s.language} · ${(s.source_code || '').split('\n').length} 行` }),
-      U.codeBlock(s.source_code || '', s.language)
+      U.codePanel(s.source_code || '', s.language, {
+        title: '源代码',
+        sub: `${s.language} · ${(s.source_code || '').split('\n').length} 行`,
+      }),
+      (s.peer_reviews || []).length
+        ? h('div', { class: 'mt16' },
+            U.cardHead(`同学对我这份代码的评审（${s.peer_reviews.length} 份）`),
+            h('div', { class: 'col' }, ...s.peer_reviews.map((r) =>
+              h('div', { class: 'list-row', style: { display: 'block' } },
+                h('div', { class: 'row', style: { marginBottom: '6px' } },
+                  h('span', { class: 'anon-tag' }, r.reviewer),
+                  U.badge(r.total + ' 分', 'brand'),
+                  h('span', { class: 'muted small' }, `用时 ${Math.round(r.duration_sec || 0)} 秒`)),
+                h('div', { style: { fontSize: '13px', color: 'var(--ink-2)' } }, r.comment)))))
+        : s.peer_review_pending
+          ? h('div', { class: 'mt16' }, U.note(s.peer_review_pending, 'warn'))
+          : null
     )
   );
 }
@@ -491,6 +506,7 @@ export function renderReviewTask({ task, startedAt }) {
   const totalBox = h('span', { class: 'rubric-item__score' }, '0');
   const sections = task.sections || [];
   const content = task.content || {};
+  const isCode = task.kind === 'code';
 
   const recalc = () => {
     const total = Object.values(scores).reduce((a, b) => a + (Number(b) || 0), 0);
@@ -498,25 +514,58 @@ export function renderReviewTask({ task, startedAt }) {
     totalBox.style.color = total >= 85 ? 'var(--brand-2)' : total >= 60 ? 'var(--brand)' : 'var(--danger)';
   };
 
+  const codeBody = h(
+    'div',
+    {},
+    h(
+      'div',
+      { class: 'row row--wrap', style: { gap: '8px', marginBottom: '10px' } },
+      h('span', { class: 'muted small' }, '自动评测'),
+      U.verdictBadge(task.verdict || '—'),
+      h('span', { class: 'small muted' },
+        `机评分 ${task.auto_score == null ? '—' : task.auto_score}` +
+        (task.passed != null ? ` · 通过 ${task.passed}/${task.total_cases}` : '') +
+        (task.time_ms ? ` · 最长用时 ${U.fmtTime(task.time_ms)}` : '') +
+        (task.memory_kb ? ` · 内存 ${U.fmtMem(task.memory_kb)}` : '')),
+      task.attempt_no ? U.badge(`第 ${task.attempt_no} 次提交`, 'neutral') : null
+    ),
+    h('div', { class: 'row', style: { marginBottom: '8px' } },
+      U.badge(task.language || 'cpp', 'neutral'),
+      h('span', { class: 'small muted' },
+        `共 ${(task.code || '').split('\n').length} 行 · 提交于 ${U.fmtDate(task.submitted_at)}`)),
+    U.codePanel(task.code || '（该同学没有提交记录）', task.language || 'cpp', {
+      title: '同学的代码',
+      sub: `共 ${(task.code || '').split('\n').length} 行 · ${task.language || 'cpp'}`,
+    }),
+    U.note('请从正确性、效率与复杂度、代码清晰度、健壮性四个方面评价；'
+      + '机评结果仅供参考，重点是代码本身的问题与改进空间。', 'ok')
+  );
+
+  const textBody = h(
+    'div',
+    { class: 'mt16' },
+    sections.length
+      ? sections.map((sec) =>
+          h('section', { class: 'mt16' },
+            h('h4', { style: { fontSize: '13.5px', color: 'var(--brand)' } }, sec.name),
+            h('div', { class: 'prose', style: { fontSize: '13.5px', lineHeight: '1.95', whiteSpace: 'pre-wrap', color: 'var(--ink-2)' } },
+              String(content[sec.key] || '（未作答）'))))
+      : Object.entries(content).map(([k, v]) =>
+          h('section', { class: 'mt16' }, h('h4', {}, k),
+            h('div', { style: { whiteSpace: 'pre-wrap', fontSize: '13.5px' } }, String(v))))
+  );
+
   const left = U.card(
     U.cardHead(task.problem_title, { sub: task.assignment_title }),
     h('div', { class: 'row', style: { marginBottom: '10px' } },
       h('span', { class: 'anon-tag' }, '作者 ' + task.author),
-      U.badge(PROBLEM_TYPE[task.problem_type] || task.problem_type, 'blue'),
-      h('span', { class: 'muted small' }, '预计阅读 8-12 分钟')),
-    h('details', { open: true },
+      U.badge(isCode ? '代码互评' : (PROBLEM_TYPE[task.problem_type] || task.problem_type),
+              isCode ? 'brand' : 'blue'),
+      h('span', { class: 'muted small' }, isCode ? '预计 8-12 分钟' : '预计阅读 8-12 分钟')),
+    h('details', { open: !isCode },
       h('summary', { style: { cursor: 'pointer', fontSize: '13px', color: 'var(--brand)' } }, '查看题目要求'),
       h('div', { class: 'prose', style: { fontSize: '13px', whiteSpace: 'pre-wrap', marginTop: '8px', color: 'var(--ink-2)' } }, task.problem_statement || '')),
-    h('div', { class: 'mt16' },
-      sections.length
-        ? sections.map((sec) =>
-            h('section', { class: 'mt16' },
-              h('h4', { style: { fontSize: '13.5px', color: 'var(--brand)' } }, sec.name),
-              h('div', { class: 'prose', style: { fontSize: '13.5px', lineHeight: '1.95', whiteSpace: 'pre-wrap', color: 'var(--ink-2)' } },
-                String(content[sec.key] || '（未作答）'))))
-        : Object.entries(content).map(([k, v]) =>
-            h('section', { class: 'mt16' }, h('h4', {}, k),
-              h('div', { style: { whiteSpace: 'pre-wrap', fontSize: '13.5px' } }, String(v)))))
+    isCode ? h('div', { class: 'mt16' }, codeBody) : textBody
   );
 
   const rubric = (task.rubric && task.rubric.length ? task.rubric : [
@@ -815,4 +864,83 @@ function eventLabel(t) {
 export async function loadProblem(ctx) {
   const p = await api.get('/api/problems/' + ctx.params.id);
   return p;
+}
+
+/* ================================================ 学生端：作业详情 */
+
+export async function loadStudentAssignment(ctx) {
+  const [a, reviews] = await Promise.all([
+    api.get('/api/assignments/' + ctx.params.id),
+    api.get('/api/reviews/mine').catch(() => []),
+  ]);
+  return { a, mine: (reviews || []).filter((r) => String(r.assignment_id) === String(a.id)) };
+}
+
+export function renderStudentAssignment({ a, mine }) {
+  const probs = a.problems || [];
+  const isProg = (p) => p.type === 'programming';
+  const solved = (p) => (isProg(p) ? p.my_verdict === 'Accepted' : !!p.my_subjective);
+  const done = probs.filter(solved).length;
+  const pending = mine.filter((r) => r.status === 'pending');
+
+  return h(
+    'div',
+    {},
+    U.pageHeader(a.title, {
+      eyebrow: 'ASSIGNMENT',
+      sub: a.description || '',
+      actions: [
+        a.overdue ? U.badge('已截止', 'neutral') : U.countdown(a.due_at),
+        U.badge(`${done}/${probs.length} 已完成`, done === probs.length ? 'ok' : 'warn'),
+        h('a', { class: 'btn btn--ghost btn--sm', href: '#/problems' }, '去题库'),
+      ],
+    }),
+    U.card(
+      U.cardHead('完成进度', { sub: `${done} / ${probs.length} 题` }),
+      U.progress(probs.length ? done / probs.length : 0),
+      h('div', { class: 'row row--wrap mt12', style: { gap: '16px' } },
+        h('span', { class: 'small muted' }, a.due_at ? `截止 ${U.fmtDate(a.due_at)}` : '未设截止'),
+        a.review_due_at ? h('span', { class: 'small muted' }, `互评截止 ${U.fmtDate(a.review_due_at)}`) : null,
+        a.peer_review ? h('span', { class: 'small muted' }, `每份作业 ${a.reviews_per_submission} 份评审`) : null)
+    ),
+    h('div', { class: 'grid grid--auto mt16' },
+      ...probs.map((p) =>
+        h('div', { class: 'card problem-card' },
+          h('div', { class: 'problem-card__top' },
+            h('div', {}, h('div', { class: 'problem-card__title' }, p.title)),
+            solved(p)
+              ? U.badge('已完成', 'ok')
+              : p.my_verdict
+                ? U.verdictBadge(p.my_verdict)
+                : U.badge('未提交', 'neutral')),
+          h('div', { class: 'problem-card__stats' },
+            h('span', {}, PROBLEM_TYPE[p.type] || p.type),
+            isProg(p) ? h('span', {}, `已尝试 ${p.my_tries || 0} 次`) : null,
+            isProg(p) ? h('span', {}, `最高 ${p.my_best == null ? '—' : p.my_best} 分`) : null,
+            !isProg(p) && p.my_subjective ? h('span', {}, '已提交') : null),
+          U.tagList(p.topics, 'soft'),
+          h('div', { class: 'problem-card__foot' },
+            h('span', { class: 'small muted' }, p.type === 'programming' ? '自动评测' : '互评'),
+            h('a', { class: 'btn btn--soft btn--sm', href: `#/problem/${p.id}` },
+              solved(p) ? '再看一遍' : '去完成'))
+        ))),
+    a.peer_review
+      ? h('div', { class: 'mt16' },
+          U.card(
+            U.cardHead('我的互评任务', {
+              sub: `待完成 ${pending.length} 份 / 共 ${mine.length} 份`,
+              actions: h('a', { class: 'btn btn--primary btn--sm', href: '#/student/reviews' }, '进入互评中心'),
+            }),
+            pending.length
+              ? h('div', { class: 'col' }, ...pending.slice(0, 5).map((r) =>
+                  h('div', { class: 'list-row' },
+                    h('span', { class: 'anon-tag' }, r.author || '匿名'),
+                    h('div', { class: 'list-row__main' },
+                      h('div', { class: 'list-row__title' }, r.problem_title)),
+                    h('a', { class: 'btn btn--soft btn--xs', href: `#/student/reviews/${r.allocation_id}` }, '开始评审'))))
+              : U.empty('互评已全部完成', '感谢参与，结果将在评审截止后公布。')
+          )
+        )
+      : null
+  );
 }

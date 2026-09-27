@@ -90,6 +90,23 @@ def anon_label(user_id: int) -> str:
     return "匿名#%d" % (1000 + (int(user_id) * 7919) % 8999)
 
 
+#: 编程题（代码互评）的默认评分细则；教师可在题库里为每道题单独配置
+DEFAULT_CODE_RUBRIC = [
+    {"key": "correctness", "name": "正确性", "max": 35,
+     "desc": "算法是否正确，边界情况（n=1、极值、重复元素）是否处理"},
+    {"key": "complexity", "name": "效率与复杂度", "max": 25,
+     "desc": "是否达到题目要求的复杂度，有无不必要的重复计算"},
+    {"key": "clarity", "name": "代码清晰度", "max": 20,
+     "desc": "命名、结构、注释是否清晰易读"},
+    {"key": "robustness", "name": "健壮性", "max": 20,
+     "desc": "是否存在溢出、越界、未初始化等隐患"},
+]
+
+
+def default_code_rubric() -> list:
+    return [dict(x) for x in DEFAULT_CODE_RUBRIC]
+
+
 # ---------------------------------------------------------------------------
 # 认证
 # ---------------------------------------------------------------------------
@@ -663,7 +680,8 @@ def api_submissions(ctx):
     q = ctx["query"]
     sql = (
         "SELECT s.id,s.assignment_id,s.problem_id,s.user_id,s.language,s.verdict,s.score,"
-        "s.time_ms,s.memory_kb,s.attempt_no,s.submitted_at,p.title AS problem_title,"
+        "s.time_ms,s.memory_kb,s.attempt_no,s.submitted_at,s.review_score,"
+        "p.title AS problem_title,"
         "u.name AS user_name,u.class_name FROM submissions s "
         "JOIN problems p ON p.id=s.problem_id JOIN users u ON u.id=s.user_id WHERE 1=1"
     )
@@ -707,8 +725,37 @@ def api_submission(ctx):
     d["detail"] = jload(d["detail"], {})
     d["test_results"] = uid_rows(
         "SELECT * FROM test_results WHERE submission_id=? ORDER BY id", (sid,))
-    if not is_teacher(ctx["user"]) and d["user_id"] != ctx["user"]["id"]:
+    teacher = is_teacher(ctx["user"])
+    owner = d["user_id"] == ctx["user"]["id"]
+    if not teacher and not owner:
         d["source_code"] = "（其他同学的代码不可见）"
+    # 代码互评结果：仅本人与教师可见，且评审截止后才公布
+    if teacher or owner:
+        reviews = uid_rows(
+            "SELECT r.*, u.name AS reviewer_name FROM reviews r "
+            "JOIN users u ON u.id=r.reviewer_id "
+            "WHERE r.problem_id=? AND r.author_id=?",
+            (d["problem_id"], d["user_id"]),
+        )
+        a = (db.q1("SELECT review_due_at FROM assignments WHERE id=?",
+                   (d["assignment_id"],)) if d["assignment_id"] else None)
+        end = parse_dt(a["review_due_at"]) if a else None
+        published = bool(end and end < datetime.now())
+        if teacher or published:
+            d["peer_reviews"] = [
+                {
+                    "reviewer": (r["reviewer_name"] if teacher else anon_label(r["reviewer_id"])),
+                    "total": r["total"], "scores": jload(r["scores"], {}),
+                    "comment": r["comment"], "duration_sec": r["duration_sec"],
+                    "submitted_at": r["submitted_at"],
+                }
+                for r in reviews
+            ]
+        else:
+            d["peer_reviews"] = []
+            d["peer_review_pending"] = (
+                "评审尚未结束，结果将在互评截止后公布" if reviews else None
+            )
     return ok(d)
 
 
@@ -927,9 +974,26 @@ def api_allocate(ctx):
     t0 = time.perf_counter()
     report = []
     for prob in probs:
-        authors = [r["user_id"] for r in uid_rows(
-            "SELECT user_id FROM subjective_submissions WHERE assignment_id=? AND problem_id=?",
-            (aid, prob["id"]))]
+        # 主观题以便提交为作者来源；编程题以「有提交记录的学生」为作者来源，
+        # 这样代码互评与主观题互评走同一套分配/聚合/异常检测流程。
+        if prob["type"] == "programming":
+            authors = [
+                r["user_id"] for r in uid_rows(
+                    # 代码互评的对象是「该学生在这道题上的提交」，不限于本作业——
+                    # 教师可以对已经练过的题目再组织一轮代码互评
+                    "SELECT DISTINCT user_id FROM submissions WHERE problem_id=? "
+                    "ORDER BY user_id",
+                    (prob["id"],),
+                )
+            ]
+        else:
+            authors = [
+                r["user_id"] for r in uid_rows(
+                    "SELECT user_id FROM subjective_submissions "
+                    "WHERE assignment_id=? AND problem_id=?",
+                    (aid, prob["id"]),
+                )
+            ]
         if len(authors) < 2:
             continue
         if method == "random":
@@ -1014,25 +1078,56 @@ def api_review_task(ctx):
     teacher = is_teacher(ctx["user"])
     if al["reviewer_id"] != ctx["user"]["id"] and not teacher:
         return err(403, "这不是分配给你的评审任务")
-    ss = db.q1(
-        "SELECT * FROM subjective_submissions WHERE assignment_id=? AND problem_id=? AND user_id=?",
-        (al["assignment_id"], al["problem_id"], al["author_id"]))
-    content = jload(ss["content"], {}) if ss else {}
-    content = {k: v for k, v in content.items() if not k.startswith("_")}
     rubric = jload(al["rubric"], [])
     sections = []
     if rubric and isinstance(rubric[0], dict) and "sections" in rubric[0]:
         sections = rubric[0]["sections"]
-    return ok({
+    base = {
         "allocation_id": al["id"], "assignment_id": al["assignment_id"],
         "assignment_title": al["assignment_title"], "problem_id": al["problem_id"],
         "problem_title": al["problem_title"], "problem_statement": al["statement"],
-        "problem_type": al["problem_type"], "sections": sections, "content": content,
+        "problem_type": al["problem_type"],
         "author": al["author_id"] if teacher else anon_label(al["author_id"]),
         "rubric": [r for r in rubric if isinstance(r, dict) and "key" in r],
         "status": al["status"], "review_due_at": al["review_due_at"],
+    }
+    # 编程题：把作者最好的一次提交作为评审对象（附自动评测结论，便于评审者判断）
+    if al["problem_type"] == "programming":
+        sub = db.q1(
+            "SELECT s.* FROM submissions s WHERE s.problem_id=? AND s.user_id=? "
+            "ORDER BY (s.verdict='Accepted') DESC, s.score DESC, s.id DESC LIMIT 1",
+            (al["problem_id"], al["author_id"]),
+        )
+        detail = jload(sub["detail"], {}) if sub else {}
+        base.update({
+            "kind": "code",
+            "code": sub["source_code"] if sub else "",
+            "language": sub["language"] if sub else "cpp",
+            "verdict": sub["verdict"] if sub else None,
+            "auto_score": sub["score"] if sub else None,
+            "time_ms": sub["time_ms"] if sub else None,
+            "memory_kb": sub["memory_kb"] if sub else None,
+            "attempt_no": sub["attempt_no"] if sub else None,
+            "submitted_at": sub["submitted_at"] if sub else None,
+            "passed": detail.get("passed"),
+            "total_cases": detail.get("total_cases"),
+            "sections": [], "content": {},
+            "estimated_minutes": 10,
+            "rubric": [r for r in rubric if isinstance(r, dict) and "key" in r]
+                      or default_code_rubric(),
+        })
+        return ok(base)
+    ss = db.q1(
+        "SELECT * FROM subjective_submissions WHERE assignment_id=? AND problem_id=? AND user_id=?",
+        (al["assignment_id"], al["problem_id"], al["author_id"]))
+    content = jload(ss["content"], {}) if ss else {}
+    base.update({
+        "kind": "text",
+        "content": {k: v for k, v in content.items() if not k.startswith("_")},
+        "sections": sections,
         "estimated_minutes": 12,
     })
+    return ok(base)
 
 
 @route("POST", "/api/reviews/{allocation_id}")
@@ -1081,8 +1176,6 @@ def api_aggregate(ctx):
         "WHERE ap.assignment_id=? ORDER BY ap.order_index", (aid,))
     report = []
     for prob in probs:
-        if prob["type"] == "programming":
-            continue
         reviews = _load_review_context(aid, prob["id"])
         if not reviews:
             continue
@@ -1099,10 +1192,19 @@ def api_aggregate(ctx):
         em = AG.aggregate(rl, b.get("method") or "reliability_em")
         conn = db.get_conn()
         for uid, sc in em["scores"].items():
-            conn.execute(
-                "UPDATE subjective_submissions SET status='done', final_score=?, methods=?, "
-                "updated_at=? WHERE assignment_id=? AND problem_id=? AND user_id=?",
-                (round(sc, 2), db.jdumps(per_method), db.now(), aid, prob["id"], uid))
+            if prob["type"] == "programming":
+                # 代码互评：把聚合分写回该作者最好的一次提交
+                conn.execute(
+                    "UPDATE submissions SET review_score=?, review_methods=? WHERE id=("
+                    "  SELECT id FROM submissions WHERE problem_id=? AND user_id=? "
+                    "  ORDER BY (verdict='Accepted') DESC, score DESC, id DESC LIMIT 1)",
+                    (round(sc, 2), db.jdumps(per_method), prob["id"], uid),
+                )
+            else:
+                conn.execute(
+                    "UPDATE subjective_submissions SET status='done', final_score=?, methods=?, "
+                    "updated_at=? WHERE assignment_id=? AND problem_id=? AND user_id=?",
+                    (round(sc, 2), db.jdumps(per_method), db.now(), aid, prob["id"], uid))
         conn.commit()
         det = AN.detect(rl)
         conn.execute(
@@ -1147,8 +1249,6 @@ def api_review_results(ctx):
         "WHERE ap.assignment_id=? ORDER BY ap.order_index", (aid,))
     out = []
     for prob in probs:
-        if prob["type"] == "programming":
-            continue
         reviews = _load_review_context(aid, prob["id"])
         if not reviews:
             continue

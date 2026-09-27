@@ -405,11 +405,54 @@ export function note(text, tone = 'info') {
   return h('div', { class: ['note', 'note--' + tone] }, text);
 }
 
-export function codeBlock(code, lang = '') {
+/**
+ * 代码展示块：带行号，长行可自动换行（阅读代码时比横向滚动友好）。
+ * ``lineNumbers`` 用于编译信息之类的短文本时关掉。
+ */
+export function codeBlock(code, lang = '', { lineNumbers = true, wrap = true, maxHeight } = {}) {
+  const text = String(code == null ? '' : code).replace(/\n+$/, '');
+  const lines = text.split('\n');
   return h(
     'pre',
-    { class: 'code-block' },
-    h('code', { class: 'lang-' + lang }, code)
+    {
+      class: ['code-block', wrap ? 'is-wrap' : '', lineNumbers ? 'has-gutter' : ''],
+      style: maxHeight ? { maxHeight: maxHeight + 'px', overflowY: 'auto' } : null,
+    },
+    lineNumbers
+      ? h('span', { class: 'code-block__gutter', 'aria-hidden': 'true' },
+          lines.map((_l, i) => i + 1).join('\n'))
+      : null,
+    h('code', { class: 'code-block__body lang-' + lang }, text)
+  );
+}
+
+/** 代码面板：标题栏 + 换行开关 + 代码块，用于评审/提交详情里阅读代码。 */
+export function codePanel(code, lang = 'cpp', { title = '源代码', sub } = {}) {
+  let wrap = true;
+  const box = h('div');
+  const paint = () => {
+    clear(box);
+    box.appendChild(codeBlock(code, lang, { wrap }));
+  };
+  paint();
+  return h(
+    'div',
+    {},
+    h(
+      'div',
+      { class: 'row between', style: { marginBottom: '8px' } },
+      h('div', {}, h('b', { style: { fontSize: '13.5px' } }, title),
+        sub ? h('span', { class: 'small muted', style: { marginLeft: '8px' } }, sub) : null),
+      btn(wrap ? '关闭自动换行' : '自动换行', {
+        tone: 'plain', size: 'xs',
+        onClick: (e) => {
+          wrap = !wrap;
+          e.target.closest('button').textContent = wrap ? '关闭自动换行' : '自动换行';
+          paint();
+        },
+      })
+    ),
+    box
   );
 }
 

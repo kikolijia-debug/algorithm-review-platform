@@ -490,223 +490,654 @@ def _cut_gen(rng: random.Random):
 # C++ 模板
 # ---------------------------------------------------------------------------
 
-HDR = "#include <bits/stdc++.h>\nusing namespace std;\n"
+HDR = "#include <bits/stdc++.h>\nusing namespace std;\n\n"
 
 CPP = {
 "KADANE": {
-  "ok": HDR + """int main(){int n;if(scanf("%d",&n)!=1)return 0;long long best=LLONG_MIN,cur=0;
-for(int i=0;i<n;i++){long long x;scanf("%lld",&x);cur=(i==0)?x:max(x,cur+x);best=max(best,cur);}
-printf("%lld\\n",best);return 0;}
+  "ok": HDR + """int main() {
+    int n;
+    if(scanf("%d",&n)!=1)return 0;
+    long long best=LLONG_MIN, cur=0;
+    for(int i=0;i<n;i++) {
+        long long x;
+        scanf("%lld",&x);
+        cur=(i==0)?x:max(x,cur+x);
+        best=max(best,cur);
+    }
+    printf("%lld\\n",best);
+    return 0;
+}
 """,
-  "slow": HDR + """int main(){int n;scanf("%d",&n);vector<long long>a(n);
-for(int i=0;i<n;i++)scanf("%lld",&a[i]);long long best=LLONG_MIN;
-for(int i=0;i<n;i++){long long s=0;for(int j=i;j<n;j++){s+=a[j];best=max(best,s);}}
-printf("%lld\\n",best);return 0;}
+  "slow": HDR + """int main() {
+    int n;
+    scanf("%d",&n);
+    vector<long long>a(n);
+    for(int i=0;i<n;i++)scanf("%lld",&a[i]);
+    long long best=LLONG_MIN;
+    for(int i=0;i<n;i++) {
+        long long s=0;
+        for(int j=i;j<n;j++) {
+            s+=a[j];
+            best=max(best,s);
+        }
+    }
+    printf("%lld\\n",best);
+    return 0;
+}
 """,
-  "bug": HDR + """int main(){int n;scanf("%d",&n);long long best=-1,cur=0;
-for(int i=0;i<n;i++){long long x;scanf("%lld",&x);cur+=x;if(cur<0)cur=0;best=max(best,cur);}
-printf("%lld\\n",best);return 0;}
+  "bug": HDR + """int main() {
+    int n;
+    scanf("%d",&n);
+    long long best=-1, cur=0;
+    for(int i=0;i<n;i++) {
+        long long x;
+        scanf("%lld",&x);
+        cur+=x;
+        if(cur<0)cur=0;
+        best=max(best,cur);
+    }
+    printf("%lld\\n",best);
+    return 0;
+}
 """,
 },
 "INVERSION": {
-  "ok": HDR + """int n,a[200005],buf[200005];long long cnt=0;
-void ms(int lo,int hi){if(hi-lo<=1)return;int mid=(lo+hi)/2;ms(lo,mid);ms(mid,hi);
-int i=lo,j=mid,k=lo;while(i<mid&&j<hi){if(a[i]<=a[j])buf[k++]=a[i++];else{buf[k++]=a[j++];cnt+=mid-i;}}
-while(i<mid)buf[k++]=a[i++];while(j<hi)buf[k++]=a[j++];for(int t=lo;t<hi;t++)a[t]=buf[t];}
-int main(){scanf("%d",&n);for(int i=0;i<n;i++)scanf("%d",&a[i]);ms(0,n);printf("%lld\\n",cnt);return 0;}
+  "ok": HDR + """int n, a[200005], buf[200005];
+long long cnt=0;
+void ms(int lo,int hi) {
+    if(hi-lo<=1)return;
+    int mid=(lo+hi)/2;
+    ms(lo,mid);
+    ms(mid,hi);
+    int i=lo, j=mid, k=lo;
+    while(i<mid&&j<hi) {
+        if(a[i]<=a[j])buf[k++]=a[i++];
+        else {
+            buf[k++]=a[j++];
+            cnt+=mid-i;
+        }
+    }
+    while(i<mid)buf[k++]=a[i++];
+    while(j<hi)buf[k++]=a[j++];
+    for(int t=lo;t<hi;t++)a[t]=buf[t];
+}
+
+int main() {
+    scanf("%d",&n);
+    for(int i=0;i<n;i++)scanf("%d",&a[i]);
+    ms(0,n);
+    printf("%lld\\n",cnt);
+    return 0;
+}
 """,
-  "slow": HDR + """int main(){int n;scanf("%d",&n);vector<long long>a(n);
-for(int i=0;i<n;i++)scanf("%lld",&a[i]);long long c=0;
-for(int i=0;i<n;i++)for(int j=i+1;j<n;j++)if(a[i]>a[j])c++;
-printf("%lld\\n",c);return 0;}
+  "slow": HDR + """int main() {
+    int n;
+    scanf("%d",&n);
+    vector<long long>a(n);
+    for(int i=0;i<n;i++)scanf("%lld",&a[i]);
+    long long c=0;
+    for(int i=0;i<n;i++)for(int j=i+1;j<n;j++)if(a[i]>a[j])c++;
+    printf("%lld\\n",c);
+    return 0;
+}
 """,
-  "bug": HDR + """int n,a[200005],buf[200005];long long cnt=0;
-void ms(int lo,int hi){if(hi-lo<=1)return;int mid=(lo+hi)/2;ms(lo,mid);ms(mid,hi);
-int i=lo,j=mid,k=lo;while(i<mid&&j<hi){if(a[i]<a[j])buf[k++]=a[i++];else{buf[k++]=a[j++];cnt+=mid-i;}}
-while(i<mid)buf[k++]=a[i++];while(j<hi)buf[k++]=a[j++];for(int t=lo;t<hi;t++)a[t]=buf[t];}
-int main(){scanf("%d",&n);for(int i=0;i<n;i++)scanf("%d",&a[i]);ms(0,n);printf("%lld\\n",cnt);return 0;}
+  "bug": HDR + """int n, a[200005], buf[200005];
+long long cnt=0;
+void ms(int lo,int hi) {
+    if(hi-lo<=1)return;
+    int mid=(lo+hi)/2;
+    ms(lo,mid);
+    ms(mid,hi);
+    int i=lo, j=mid, k=lo;
+    while(i<mid&&j<hi) {
+        if(a[i]<a[j])buf[k++]=a[i++];
+        else {
+            buf[k++]=a[j++];
+            cnt+=mid-i;
+        }
+    }
+    while(i<mid)buf[k++]=a[i++];
+    while(j<hi)buf[k++]=a[j++];
+    for(int t=lo;t<hi;t++)a[t]=buf[t];
+}
+
+int main() {
+    scanf("%d",&n);
+    for(int i=0;i<n;i++)scanf("%d",&a[i]);
+    ms(0,n);
+    printf("%lld\\n",cnt);
+    return 0;
+}
 """,
 },
 "ACTIVITY": {
-  "ok": HDR + """int main(){int n;scanf("%d",&n);vector<pair<int,int>>v(n);
-for(int i=0;i<n;i++)scanf("%d %d",&v[i].second,&v[i].first);sort(v.begin(),v.end());
-int c=0,last=-1;for(int i=0;i<n;i++)if(v[i].second>=last){c++;last=v[i].first;}
-printf("%d\\n",c);return 0;}
-""",
-  "slow": HDR + """int n,s[3000],e[3000],dp[3000];
-int main(){scanf("%d",&n);for(int i=0;i<n;i++)scanf("%d %d",&s[i],&e[i]);
-// 朴素的 O(n^2) 区间动态规划：枚举「第一个活动」，不做贪心排序
-int best=0;
-for(int i=0;i<n;i++){
-  for(int j=0;j<n;j++)dp[j]=0;
-  int last=e[i],cnt=1;
-  for(int t=0;t<n;t++){if(s[t]>=last){cnt++;last=e[t];}}
-  best=max(best,cnt);
+  "ok": HDR + """int main() {
+    int n;
+    scanf("%d",&n);
+    vector<pair<int, int>>v(n);
+    for(int i=0;i<n;i++)scanf("%d %d",&v[i].second,&v[i].first);
+    sort(v.begin(),v.end());
+    int c=0, last=-1;
+    for(int i=0;i<n;i++)if(v[i].second>=last) {
+        c++;
+        last=v[i].first;
+    }
+    printf("%d\\n",c);
+    return 0;
 }
-printf("%d\\n",best);return 0;}
 """,
-  "bug": HDR + """int main(){int n;scanf("%d",&n);vector<pair<int,int>>v(n);
-for(int i=0;i<n;i++)scanf("%d %d",&v[i].first,&v[i].second);sort(v.begin(),v.end());
-int c=0,last=-1;for(int i=0;i<n;i++)if(v[i].first>=last){c++;last=v[i].second;}
-printf("%d\\n",c);return 0;}
+  "slow": HDR + """int n, s[3000], e[3000], dp[3000];
+int main() {
+    scanf("%d",&n);
+    for(int i=0;i<n;i++)scanf("%d %d",&s[i],&e[i]);
+    // 朴素的 O(n^2) 区间动态规划：枚举「第一个活动」，不做贪心排序
+    int best=0;
+    for(int i=0;i<n;i++) {
+        for(int j=0;j<n;j++)dp[j]=0;
+        int last=e[i], cnt=1;
+        for(int t=0;t<n;t++) {
+            if(s[t]>=last) {
+                cnt++;
+                last=e[t];
+            }
+        }
+        best=max(best,cnt);
+    }
+    printf("%d\\n",best);
+    return 0;
+}
+""",
+  "bug": HDR + """int main() {
+    int n;
+    scanf("%d",&n);
+    vector<pair<int, int>>v(n);
+    for(int i=0;i<n;i++)scanf("%d %d",&v[i].first,&v[i].second);
+    sort(v.begin(),v.end());
+    int c=0, last=-1;
+    for(int i=0;i<n;i++)if(v[i].first>=last) {
+        c++;
+        last=v[i].second;
+    }
+    printf("%d\\n",c);
+    return 0;
+}
 """,
 },
 "KNAPSACK": {
-  "ok": HDR + """int main(){int n,W;scanf("%d %d",&n,&W);vector<int>dp(W+1,0);
-for(int i=0;i<n;i++){int w,v;scanf("%d %d",&w,&v);for(int c=W;c>=w;c--)dp[c]=max(dp[c],dp[c-w]+v);}
-printf("%d\\n",dp[W]);return 0;}
+  "ok": HDR + """int main() {
+    int n, W;
+    scanf("%d %d",&n,&W);
+    vector<int>dp(W+1,0);
+    for(int i=0;i<n;i++) {
+        int w, v;
+        scanf("%d %d",&w,&v);
+        for(int c=W;c>=w;c--)dp[c]=max(dp[c],dp[c-w]+v);
+    }
+    printf("%d\\n",dp[W]);
+    return 0;
+}
 """,
-  "slow": HDR + """int n,W,w[40],v[40];long long best=0;
-void dfs(int i,int cw,long long cv){if(i==n){best=max(best,cv);return;}dfs(i+1,cw,cv);
-if(cw+w[i]<=W)dfs(i+1,cw+w[i],cv+v[i]);}
-int main(){scanf("%d %d",&n,&W);for(int i=0;i<n;i++)scanf("%d %d",&w[i],&v[i]);
-dfs(0,0,0);printf("%lld\\n",best);return 0;}
+  "slow": HDR + """int n, W, w[40], v[40];
+long long best=0;
+void dfs(int i,int cw,long long cv) {
+    if(i==n) {
+        best=max(best,cv);
+        return;
+    }
+    dfs(i+1,cw,cv);
+    if(cw+w[i]<=W)dfs(i+1,cw+w[i],cv+v[i]);
+}
+
+int main() {
+    scanf("%d %d",&n,&W);
+    for(int i=0;i<n;i++)scanf("%d %d",&w[i],&v[i]);
+    dfs(0,0,0);
+    printf("%lld\\n",best);
+    return 0;
+}
 """,
-  "bug": HDR + """int main(){int n,W;scanf("%d %d",&n,&W);vector<int>dp(W+1,0);
-for(int i=0;i<n;i++){int w,v;scanf("%d %d",&w,&v);for(int c=w;c<=W;c++)dp[c]=max(dp[c],dp[c-w]+v);}
-printf("%d\\n",dp[W]);return 0;}
+  "bug": HDR + """int main() {
+    int n, W;
+    scanf("%d %d",&n,&W);
+    vector<int>dp(W+1,0);
+    for(int i=0;i<n;i++) {
+        int w, v;
+        scanf("%d %d",&w,&v);
+        for(int c=w;c<=W;c++)dp[c]=max(dp[c],dp[c-w]+v);
+    }
+    printf("%d\\n",dp[W]);
+    return 0;
+}
 """,
 },
 "LCS": {
-  "ok": HDR + """int main(){char a[3005],b[3005];if(scanf("%s %s",a,b)!=2)return 0;
-int n=strlen(a),m=strlen(b);vector<vector<short>>dp(n+1,vector<short>(m+1,0));
-for(int i=1;i<=n;i++)for(int j=1;j<=m;j++)dp[i][j]=a[i-1]==b[j-1]?dp[i-1][j-1]+1:max(dp[i-1][j],dp[i][j-1]);
-printf("%d\\n",(int)dp[n][m]);return 0;}
+  "ok": HDR + """int main() {
+    char a[3005], b[3005];
+    if(scanf("%s %s",a,b)!=2)return 0;
+    int n=strlen(a), m=strlen(b);
+    vector<vector<short>>dp(n+1,vector<short>(m+1,0));
+    for(int i=1;i<=n;i++)for(int j=1;j<=m;j++)dp[i][j]=a[i-1]==b[j-1]?dp[i-1][j-1]+1:max(dp[i-1][j],dp[i][j-1]);
+    printf("%d\\n",(int)dp[n][m]);
+    return 0;
+}
 """,
-  "slow": HDR + """char a[3005],b[3005];int memo[200][200];int n,m;
-int f(int i,int j){if(i==n||j==m)return 0;if(memo[i][j]>=0)return memo[i][j];
-int r=memo[i][j]=a[i]==b[j]?f(i+1,j+1)+1:max(f(i+1,j),f(i,j+1));return r;}
-int main(){scanf("%s %s",a,b);n=strlen(a);m=strlen(b);memset(memo,-1,sizeof memo);
-printf("%d\\n",f(0,0));return 0;}
+  "slow": HDR + """char a[3005], b[3005];
+int memo[200][200];
+int n, m;
+int f(int i,int j) {
+    if(i==n||j==m)return 0;
+    if(memo[i][j]>=0)return memo[i][j];
+    int r=memo[i][j]=a[i]==b[j]?f(i+1,j+1)+1:max(f(i+1,j),f(i,j+1));
+    return r;
+}
+
+int main() {
+    scanf("%s %s",a,b);
+    n=strlen(a);
+    m=strlen(b);
+    memset(memo,-1,sizeof memo);
+    printf("%d\\n",f(0,0));
+    return 0;
+}
 """,
-  "bug": HDR + """int main(){char a[3005],b[3005];scanf("%s %s",a,b);
-int n=strlen(a),m=strlen(b);vector<vector<short>>dp(n+1,vector<short>(m+1,0));
-for(int i=1;i<=n;i++)for(int j=1;j<=m;j++)dp[i][j]=a[i-1]==b[j-1]?dp[i-1][j-1]+1:dp[i-1][j];
-printf("%d\\n",(int)dp[n][m]);return 0;}
+  "bug": HDR + """int main() {
+    char a[3005], b[3005];
+    scanf("%s %s",a,b);
+    int n=strlen(a), m=strlen(b);
+    vector<vector<short>>dp(n+1,vector<short>(m+1,0));
+    for(int i=1;i<=n;i++)for(int j=1;j<=m;j++)dp[i][j]=a[i-1]==b[j-1]?dp[i-1][j-1]+1:dp[i-1][j];
+    printf("%d\\n",(int)dp[n][m]);
+    return 0;
+}
 """,
 },
 "MAZE": {
-  "ok": HDR + """int main(){int R,C;scanf("%d %d",&R,&C);int sx,sy,tx,ty;
-scanf("%d %d %d %d",&sx,&sy,&tx,&ty);vector<string>g(R);
-for(int i=0;i<R;i++){char buf[1005];scanf("%s",buf);g[i]=buf;}
-vector<vector<int>>d(R,vector<int>(C,-1));queue<pair<int,int>>q;
-if(g[sx][sy]=='.'){d[sx][sy]=0;q.push({sx,sy});}
-int dx[4]={1,-1,0,0},dy[4]={0,0,1,-1};
-while(!q.empty()){pair<int,int> cur=q.front();q.pop();int u=cur.first,v=cur.second;
-for(int k=0;k<4;k++){int nx=u+dx[k],ny=v+dy[k];
-if(nx>=0&&nx<R&&ny>=0&&ny<C&&g[nx][ny]=='.'&&d[nx][ny]<0){d[nx][ny]=d[u][v]+1;q.push(make_pair(nx,ny));}}}
-printf("%d\\n",d[tx][ty]);return 0;}
+  "ok": HDR + """int main() {
+    int R, C;
+    scanf("%d %d",&R,&C);
+    int sx, sy, tx, ty;
+    scanf("%d %d %d %d",&sx,&sy,&tx,&ty);
+    vector<string>g(R);
+    for(int i=0;i<R;i++) {
+        char buf[1005];
+        scanf("%s",buf);
+        g[i]=buf;
+    }
+    vector<vector<int>>d(R,vector<int>(C,-1));
+    queue<pair<int, int>>q;
+    if(g[sx][sy]=='.') {
+        d[sx][sy]=0;
+        q.push({sx,sy});
+    }
+    int dx[4]={1, -1, 0, 0}, dy[4]={0, 0, 1, -1};
+    while(!q.empty()) {
+        pair<int, int> cur=q.front();
+        q.pop();
+        int u=cur.first, v=cur.second;
+        for(int k=0;k<4;k++) {
+            int nx=u+dx[k], ny=v+dy[k];
+            if(nx>=0&&nx<R&&ny>=0&&ny<C&&g[nx][ny]=='.'&&d[nx][ny]<0) {
+                d[nx][ny]=d[u][v]+1;
+                q.push(make_pair(nx,ny));
+            }
+        }
+    }
+    printf("%d\\n",d[tx][ty]);
+    return 0;
+}
 """,
-  "slow": HDR + """int R,C,sx,sy,tx,ty;vector<string>g;int best=INT_MAX;
-void dfs(int x,int y,int d){if(d>=best)return;if(x==tx&&y==ty){best=d;return;}
-int dx[4]={1,-1,0,0},dy[4]={0,0,1,-1};g[x][y]='#';
-for(int k=0;k<4;k++){int nx=x+dx[k],ny=y+dy[k];
-if(nx>=0&&nx<R&&ny>=0&&ny<C&&g[nx][ny]=='.')dfs(nx,ny,d+1);}
-g[x][y]='.';}
-int main(){scanf("%d %d",&R,&C);scanf("%d %d %d %d",&sx,&sy,&tx,&ty);g.resize(R);
-for(int i=0;i<R;i++){char buf[1005];scanf("%s",buf);g[i]=buf;}
-dfs(sx,sy,0);printf("%d\\n",best==INT_MAX?-1:best);return 0;}
+  "slow": HDR + """int R, C, sx, sy, tx, ty;
+vector<string>g;
+int best=INT_MAX;
+void dfs(int x,int y,int d) {
+    if(d>=best)return;
+    if(x==tx&&y==ty) {
+        best=d;
+        return;
+    }
+    int dx[4]={1, -1, 0, 0}, dy[4]={0, 0, 1, -1};
+    g[x][y]='#';
+    for(int k=0;k<4;k++) {
+        int nx=x+dx[k], ny=y+dy[k];
+        if(nx>=0&&nx<R&&ny>=0&&ny<C&&g[nx][ny]=='.')dfs(nx,ny,d+1);
+    }
+    g[x][y]='.';
+}
+
+int main() {
+    scanf("%d %d",&R,&C);
+    scanf("%d %d %d %d",&sx,&sy,&tx,&ty);
+    g.resize(R);
+    for(int i=0;i<R;i++) {
+        char buf[1005];
+        scanf("%s",buf);
+        g[i]=buf;
+    }
+    dfs(sx,sy,0);
+    printf("%d\\n",best==INT_MAX?-1:best);
+    return 0;
+}
 """,
-  "bug": HDR + """int main(){int R,C;scanf("%d %d",&R,&C);int sx,sy,tx,ty;
-scanf("%d %d %d %d",&sx,&sy,&tx,&ty);vector<string>g(R);
-for(int i=0;i<R;i++){char buf[1005];scanf("%s",buf);g[i]=buf;}
-vector<vector<int>>d(R,vector<int>(C,-1));queue<pair<int,int>>q;q.push({sx,sy});d[sx][sy]=0;
-int dx[4]={1,-1,0,0},dy[4]={0,0,1,-1};
-while(!q.empty()){pair<int,int> cur=q.front();q.pop();int u=cur.first,v=cur.second;
-for(int k=0;k<4;k++){int nx=u+dx[k],ny=v+dy[k];
-if(nx>=0&&nx<R&&ny>=0&&ny<C&&g[nx][ny]=='.'&&d[nx][ny]<0){d[nx][ny]=d[u][v]+1;q.push(make_pair(nx,ny));}}}
-printf("%d\\n",d[tx][ty]);return 0;}
+  "bug": HDR + """int main() {
+    int R, C;
+    scanf("%d %d",&R,&C);
+    int sx, sy, tx, ty;
+    scanf("%d %d %d %d",&sx,&sy,&tx,&ty);
+    vector<string>g(R);
+    for(int i=0;i<R;i++) {
+        char buf[1005];
+        scanf("%s",buf);
+        g[i]=buf;
+    }
+    vector<vector<int>>d(R,vector<int>(C,-1));
+    queue<pair<int, int>>q;
+    q.push({sx,sy});
+    d[sx][sy]=0;
+    int dx[4]={1, -1, 0, 0}, dy[4]={0, 0, 1, -1};
+    while(!q.empty()) {
+        pair<int, int> cur=q.front();
+        q.pop();
+        int u=cur.first, v=cur.second;
+        for(int k=0;k<4;k++) {
+            int nx=u+dx[k], ny=v+dy[k];
+            if(nx>=0&&nx<R&&ny>=0&&ny<C&&g[nx][ny]=='.'&&d[nx][ny]<0) {
+                d[nx][ny]=d[u][v]+1;
+                q.push(make_pair(nx,ny));
+            }
+        }
+    }
+    printf("%d\\n",d[tx][ty]);
+    return 0;
+}
 """,
 },
 "DIJKSTRA": {
-  "ok": HDR + """int main(){int n,m;scanf("%d %d",&n,&m);
-vector<vector<pair<int,int>>>adj(n+1);
-for(int i=0;i<m;i++){int u,v,w;scanf("%d %d %d",&u,&v,&w);adj[u].push_back({v,w});adj[v].push_back({u,w});}
-const long long INF=LLONG_MAX/4;vector<long long>d(n+1,INF);d[1]=0;
-typedef pair<long long,int> pli;
-priority_queue<pli,vector<pli>,greater<pli>>pq;pq.push(make_pair(0LL,1));
-while(!pq.empty()){pli top=pq.top();pq.pop();long long du=top.first;int u=top.second;if(du>d[u])continue;
-for(size_t i=0;i<adj[u].size();i++){int v=adj[u][i].first,w=adj[u][i].second;
-if(du+w<d[v]){d[v]=du+w;pq.push(make_pair(d[v],v));}}}
-for(int i=1;i<=n;i++)printf("%lld%c",d[i]>=INF?-1:d[i],i==n?'\\n':' ');return 0;}
+  "ok": HDR + """int main() {
+    int n, m;
+    scanf("%d %d",&n,&m);
+    vector<vector<pair<int, int>>>adj(n+1);
+    for(int i=0;i<m;i++) {
+        int u, v, w;
+        scanf("%d %d %d",&u,&v,&w);
+        adj[u].push_back({v,w});
+        adj[v].push_back({u,w});
+    }
+    const long long INF=LLONG_MAX/4;
+    vector<long long>d(n+1,INF);
+    d[1]=0;
+    typedef pair<long long, int> pli;
+    priority_queue<pli, vector<pli>, greater<pli>>pq;
+    pq.push(make_pair(0LL,1));
+    while(!pq.empty()) {
+        pli top=pq.top();
+        pq.pop();
+        long long du=top.first;
+        int u=top.second;
+        if(du>d[u])continue;
+        for(size_t i=0;i<adj[u].size();i++) {
+            int v=adj[u][i].first, w=adj[u][i].second;
+            if(du+w<d[v]) {
+                d[v]=du+w;
+                pq.push(make_pair(d[v],v));
+            }
+        }
+    }
+    for(int i=1;i<=n;i++)printf("%lld%c",d[i]>=INF?-1:d[i],i==n?'\\n':' ');
+    return 0;
+}
 """,
-  "slow": HDR + """int main(){int n,m;scanf("%d %d",&n,&m);
-const long long INF=LLONG_MAX/4;vector<vector<long long>>w(n+1,vector<long long>(n+1,INF));
-for(int i=1;i<=n;i++)w[i][i]=0;
-for(int i=0;i<m;i++){int u,v,ww;scanf("%d %d %d",&u,&v,&ww);
-w[u][v]=min(w[u][v],(long long)ww);w[v][u]=min(w[v][u],(long long)ww);}
-for(int k=1;k<=n;k++)for(int i=1;i<=n;i++)for(int j=1;j<=n;j++)
-if(w[i][k]<INF&&w[k][j]<INF&&w[i][k]+w[k][j]<w[i][j])w[i][j]=w[i][k]+w[k][j];
-for(int i=1;i<=n;i++)printf("%lld%c",w[1][i]>=INF?-1:w[1][i],i==n?'\\n':' ');return 0;}
+  "slow": HDR + """int main() {
+    int n, m;
+    scanf("%d %d",&n,&m);
+    const long long INF=LLONG_MAX/4;
+    vector<vector<long long>>w(n+1,vector<long long>(n+1,INF));
+    for(int i=1;i<=n;i++)w[i][i]=0;
+    for(int i=0;i<m;i++) {
+        int u, v, ww;
+        scanf("%d %d %d",&u,&v,&ww);
+        w[u][v]=min(w[u][v],(long long)ww);
+        w[v][u]=min(w[v][u],(long long)ww);
+    }
+    for(int k=1;k<=n;k++)for(int i=1;i<=n;i++)for(int j=1;j<=n;j++) if(w[i][k]<INF&&w[k][j]<INF&&w[i][k]+w[k][j]<w[i][j])w[i][j]=w[i][k]+w[k][j];
+    for(int i=1;i<=n;i++)printf("%lld%c",w[1][i]>=INF?-1:w[1][i],i==n?'\\n':' ');
+    return 0;
+}
 """,
-  "bug": HDR + """int main(){int n,m;scanf("%d %d",&n,&m);
-vector<vector<pair<int,int>>>adj(n+1);
-for(int i=0;i<m;i++){int u,v,w;scanf("%d %d %d",&u,&v,&w);adj[u].push_back({v,w});adj[v].push_back({u,w});}
-const long long INF=LLONG_MAX/4;vector<long long>d(n+1,INF);d[1]=0;
-queue<int>q;q.push(1);vector<int>inq(n+1,0);inq[1]=1;
-while(!q.empty()){int u=q.front();q.pop();inq[u]=0;
-for(auto&e:adj[u])if(d[u]+e.second<d[e.first]){d[e.first]=d[u]+e.second;if(!inq[e.first]){inq[e.first]=1;q.push(e.first);}}}
-for(int i=1;i<=n;i++)printf("%lld%c",d[i]>=INF?-1:d[i],i==n?'\\n':' ');return 0;}
+  "bug": HDR + """int main() {
+    int n, m;
+    scanf("%d %d",&n,&m);
+    vector<vector<pair<int, int>>>adj(n+1);
+    for(int i=0;i<m;i++) {
+        int u, v, w;
+        scanf("%d %d %d",&u,&v,&w);
+        adj[u].push_back({v,w});
+        adj[v].push_back({u,w});
+    }
+    const long long INF=LLONG_MAX/4;
+    vector<long long>d(n+1,INF);
+    d[1]=0;
+    queue<int>q;
+    q.push(1);
+    vector<int>inq(n+1,0);
+    inq[1]=1;
+    while(!q.empty()) {
+        int u=q.front();
+        q.pop();
+        inq[u]=0;
+        for(auto&e:adj[u])if(d[u]+e.second<d[e.first]) {
+            d[e.first]=d[u]+e.second;
+            if(!inq[e.first]) {
+                inq[e.first]=1;
+                q.push(e.first);
+            }
+        }
+    }
+    for(int i=1;i<=n;i++)printf("%lld%c",d[i]>=INF?-1:d[i],i==n?'\\n':' ');
+    return 0;
+}
 """,
 },
 "DSU": {
-  "ok": HDR + """int p[500005];int find(int x){while(p[x]!=x){p[x]=p[p[x]];x=p[x];}return x;}
-int main(){int n,m;scanf("%d %d",&n,&m);for(int i=1;i<=n;i++)p[i]=i;
-for(int i=0;i<m;i++){int u,v;scanf("%d %d",&u,&v);int a=find(u),b=find(v);if(a!=b)p[b]=a;}
-int c=0;for(int i=1;i<=n;i++)if(find(i)==i)c++;printf("%d\\n",c);return 0;}
+  "ok": HDR + """int p[500005];
+int find(int x) {
+    while(p[x]!=x) {
+        p[x]=p[p[x]];
+        x=p[x];
+    }
+    return x;
+}
+
+int main() {
+    int n, m;
+    scanf("%d %d",&n,&m);
+    for(int i=1;i<=n;i++)p[i]=i;
+    for(int i=0;i<m;i++) {
+        int u, v;
+        scanf("%d %d",&u,&v);
+        int a=find(u), b=find(v);
+        if(a!=b)p[b]=a;
+    }
+    int c=0;
+    for(int i=1;i<=n;i++)if(find(i)==i)c++;
+    printf("%d\\n",c);
+    return 0;
+}
 """,
-  "slow": HDR + """int main(){int n,m;scanf("%d %d",&n,&m);
-vector<vector<int>>g(n+1);for(int i=0;i<m;i++){int u,v;scanf("%d %d",&u,&v);g[u].push_back(v);g[v].push_back(u);}
-vector<int>vis(n+1,0);int c=0;
-for(int i=1;i<=n;i++){if(vis[i])continue;c++;queue<int>q;q.push(i);vis[i]=1;
-while(!q.empty()){int u=q.front();q.pop();for(int v:g[u])if(!vis[v]){vis[v]=1;q.push(v);}}}
-printf("%d\\n",c);return 0;}
+  "slow": HDR + """int main() {
+    int n, m;
+    scanf("%d %d",&n,&m);
+    vector<vector<int>>g(n+1);
+    for(int i=0;i<m;i++) {
+        int u, v;
+        scanf("%d %d",&u,&v);
+        g[u].push_back(v);
+        g[v].push_back(u);
+    }
+    vector<int>vis(n+1,0);
+    int c=0;
+    for(int i=1;i<=n;i++) {
+        if(vis[i])continue;
+        c++;
+        queue<int>q;
+        q.push(i);
+        vis[i]=1;
+        while(!q.empty()) {
+            int u=q.front();
+            q.pop();
+            for(int v:g[u])if(!vis[v]) {
+                vis[v]=1;
+                q.push(v);
+            }
+        }
+    }
+    printf("%d\\n",c);
+    return 0;
+}
 """,
-  "bug": HDR + """int p[500005];int find(int x){return p[x]==x?x:find(p[x]);}
-int main(){int n,m;scanf("%d %d",&n,&m);for(int i=1;i<=n;i++)p[i]=i;
-for(int i=0;i<m;i++){int u,v;scanf("%d %d",&u,&v);p[find(u)]=find(v);}
-int c=0;for(int i=1;i<=n;i++)if(p[i]==i)c++;printf("%d\\n",c);return 0;}
+  "bug": HDR + """int p[500005];
+int find(int x) {
+    return p[x]==x?x:find(p[x]);
+}
+
+int main() {
+    int n, m;
+    scanf("%d %d",&n,&m);
+    for(int i=1;i<=n;i++)p[i]=i;
+    for(int i=0;i<m;i++) {
+        int u, v;
+        scanf("%d %d",&u,&v);
+        p[find(u)]=find(v);
+    }
+    int c=0;
+    for(int i=1;i<=n;i++)if(p[i]==i)c++;
+    printf("%d\\n",c);
+    return 0;
+}
 """,
 },
 "KMP": {
-  "ok": HDR + """char s[1000006],p[1000006];int pi[1000006];
-int main(){scanf("%s %s",s,p);int n=strlen(s),m=strlen(p);if(m==0){printf("0\\n");return 0;}
-for(int i=1;i<m;i++){int k=pi[i-1];while(k&&p[i]!=p[k])k=pi[k-1];if(p[i]==p[k])k++;pi[i]=k;}
-int c=0,k=0;for(int i=0;i<n;i++){while(k&&s[i]!=p[k])k=pi[k-1];if(s[i]==p[k])k++;
-if(k==m){c++;k=pi[k-1];}}
-printf("%d\\n",c);return 0;}
+  "ok": HDR + """char s[1000006], p[1000006];
+int pi[1000006];
+int main() {
+    scanf("%s %s",s,p);
+    int n=strlen(s), m=strlen(p);
+    if(m==0) {
+        printf("0\\n");
+        return 0;
+    }
+    for(int i=1;i<m;i++) {
+        int k=pi[i-1];
+        while(k&&p[i]!=p[k])k=pi[k-1];
+        if(p[i]==p[k])k++;
+        pi[i]=k;
+    }
+    int c=0, k=0;
+    for(int i=0;i<n;i++) {
+        while(k&&s[i]!=p[k])k=pi[k-1];
+        if(s[i]==p[k])k++;
+        if(k==m) {
+            c++;
+            k=pi[k-1];
+        }
+    }
+    printf("%d\\n",c);
+    return 0;
+}
 """,
-  "slow": HDR + """int main(){char s[1000006],p[1000006];scanf("%s %s",s,p);
-int n=strlen(s),m=strlen(p),c=0;
-for(int i=0;i+m<=n;i++){int ok=1;for(int j=0;j<m;j++)if(s[i+j]!=p[j]){ok=0;break;}if(ok)c++;}
-printf("%d\\n",c);return 0;}
+  "slow": HDR + """int main() {
+    char s[1000006], p[1000006];
+    scanf("%s %s",s,p);
+    int n=strlen(s), m=strlen(p), c=0;
+    for(int i=0;i+m<=n;i++) {
+        int ok=1;
+        for(int j=0;j<m;j++)if(s[i+j]!=p[j]) {
+            ok=0;
+            break;
+        }
+        if(ok)c++;
+    }
+    printf("%d\\n",c);
+    return 0;
+}
 """,
-  "bug": HDR + """char s[1000006],p[1000006];int pi[1000006];
-int main(){scanf("%s %s",s,p);int n=strlen(s),m=strlen(p);
-for(int i=1;i<m;i++){int k=pi[i-1];while(k&&p[i]!=p[k])k=pi[k-1];if(p[i]==p[k])k++;pi[i]=k;}
-int c=0,k=0;for(int i=0;i<n;i++){while(k&&s[i]!=p[k])k=pi[k-1];if(s[i]==p[k])k++;
-if(k==m){c++;}}
-printf("%d\\n",c);return 0;}
+  "bug": HDR + """char s[1000006], p[1000006];
+int pi[1000006];
+int main() {
+    scanf("%s %s",s,p);
+    int n=strlen(s), m=strlen(p);
+    for(int i=1;i<m;i++) {
+        int k=pi[i-1];
+        while(k&&p[i]!=p[k])k=pi[k-1];
+        if(p[i]==p[k])k++;
+        pi[i]=k;
+    }
+    int c=0, k=0;
+    for(int i=0;i<n;i++) {
+        while(k&&s[i]!=p[k])k=pi[k-1];
+        if(s[i]==p[k])k++;
+        if(k==m) {
+            c++;
+        }
+    }
+    printf("%d\\n",c);
+    return 0;
+}
 """,
 },
 "CUT": {
-  "ok": HDR + """int main(){int n,m;scanf("%d %d",&n,&m);vector<long long>a(n);
-for(int i=0;i<n;i++)scanf("%lld",&a[i]);long long lo=1,hi=*max_element(a.begin(),a.end()),ans=0;
-while(lo<=hi){long long mid=(lo+hi)/2,cnt=0;for(auto x:a)cnt+=x/mid;
-if(cnt>=m){ans=mid;lo=mid+1;}else hi=mid-1;}
-printf("%lld\\n",ans);return 0;}
+  "ok": HDR + """int main() {
+    int n, m;
+    scanf("%d %d",&n,&m);
+    vector<long long>a(n);
+    for(int i=0;i<n;i++)scanf("%lld",&a[i]);
+    long long lo=1, hi=*max_element(a.begin(),a.end()), ans=0;
+    while(lo<=hi) {
+        long long mid=(lo+hi)/2, cnt=0;
+        for(auto x:a)cnt+=x/mid;
+        if(cnt>=m) {
+            ans=mid;
+            lo=mid+1;
+        }
+        else hi=mid-1;
+    }
+    printf("%lld\\n",ans);
+    return 0;
+}
 """,
-  "slow": HDR + """int main(){int n,m;scanf("%d %d",&n,&m);vector<long long>a(n);
-for(int i=0;i<n;i++)scanf("%lld",&a[i]);long long ans=0;
-for(long long L=1;L<=*max_element(a.begin(),a.end());L++){long long c=0;
-for(auto x:a)c+=x/L;if(c>=m)ans=L;else break;}
-printf("%lld\\n",ans);return 0;}
+  "slow": HDR + """int main() {
+    int n, m;
+    scanf("%d %d",&n,&m);
+    vector<long long>a(n);
+    for(int i=0;i<n;i++)scanf("%lld",&a[i]);
+    long long ans=0;
+    for(long long L=1;L<=*max_element(a.begin(),a.end());L++) {
+        long long c=0;
+        for(auto x:a)c+=x/L;
+        if(c>=m)ans=L;
+        else break;
+    }
+    printf("%lld\\n",ans);
+    return 0;
+}
 """,
-  "bug": HDR + """int main(){int n,m;scanf("%d %d",&n,&m);vector<long long>a(n);
-for(int i=0;i<n;i++)scanf("%lld",&a[i]);long long lo=1,hi=*max_element(a.begin(),a.end()),ans=0;
-while(lo<=hi){long long mid=(lo+hi)/2,cnt=0;for(auto x:a)cnt+=x/mid;
-if(cnt>m){ans=mid;lo=mid+1;}else hi=mid-1;}
-printf("%lld\\n",ans);return 0;}
+  "bug": HDR + """int main() {
+    int n, m;
+    scanf("%d %d",&n,&m);
+    vector<long long>a(n);
+    for(int i=0;i<n;i++)scanf("%lld",&a[i]);
+    long long lo=1, hi=*max_element(a.begin(),a.end()), ans=0;
+    while(lo<=hi) {
+        long long mid=(lo+hi)/2, cnt=0;
+        for(auto x:a)cnt+=x/mid;
+        if(cnt>m) {
+            ans=mid;
+            lo=mid+1;
+        }
+        else hi=mid-1;
+    }
+    printf("%lld\\n",ans);
+    return 0;
+}
 """,
 },
 }
