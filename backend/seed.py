@@ -715,6 +715,11 @@ class Seeder:
                  ids["teacher"]["id"], db.days_ago(1, 16, 30)),
             ],
         )
+        # 标记「当前数据是系统生成的演示数据」，前端会在顶栏显示提示。
+        # 当教师导入自己班级的真实名单后，可删除这条记录（见 docs/使用手册.md）。
+        db.ex(
+            "INSERT OR REPLACE INTO settings(key,value) VALUES('demo_seed',?)", (db.now(),)
+        )
 
 
 def seed(reset: bool = True, verbose: bool = True) -> dict:

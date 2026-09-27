@@ -182,8 +182,11 @@ def api_me(ctx):
 def api_meta(ctx):
     from . import experiments as EX
 
+    demo_row = db.q1("SELECT value FROM settings WHERE key='demo_seed'")
     return ok(
         {
+            "demo": bool(demo_row),
+            "demo_seed_at": demo_row["value"] if demo_row else None,
             "languages": J.available_languages(),
             "verdicts": J.VERDICT_FULL,
             "aggregation_methods": [

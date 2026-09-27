@@ -7,6 +7,7 @@ import { state, load, save, setTheme, reset, isTeacher, emit } from './core/stor
 import * as api from './core/api.js';
 import * as router from './core/router.js';
 import { toast, fail, confirmDialog } from './core/toast.js';
+import * as U from './core/ui.js';
 import { avatar, icon, loading, empty } from './core/ui.js';
 
 import { renderLanding, renderLogin } from './pages/public.js';
@@ -152,6 +153,16 @@ function topbar() {
     h('button', { class: 'icon-btn nav-toggle', title: '菜单', onclick: () => document.querySelector('.shell').classList.toggle('nav-open') }, '☰'),
     h('div', { class: 'topbar__crumbs' }, ...crumbs),
     h('div', { class: 'topbar__spacer' }),
+    // 演示数据提示：数据由 seed 脚本生成时明确标注，避免被误当成真实班级数据
+    state.meta && state.meta.demo
+      ? h('span', {
+          class: 'badge badge--warn',
+          style: { cursor: 'help' },
+          title: '当前是系统生成的演示数据（题目与测试数据是真实的，递交记录与互评评分是模拟的）。\n'
+            + '导入本班真实名单后，请删除 settings 表中的 demo_seed 记录。',
+          onclick: () => showDemoNotice(),
+        }, '演示数据')
+      : null,
     h(
       'button',
       {
@@ -214,6 +225,43 @@ function openUserMenu(e) {
 
 export function currentPath() {
   return (location.hash.replace(/^#/, '') || '/').split('?')[0];
+}
+
+/** 「演示数据」说明弹窗：把真实与模拟的部分讲清楚。 */
+function showDemoNotice() {
+  const rows = [
+    ['题目与测试数据', '真实', '题目取自课程题库，测试数据由参考程序生成'],
+    ['提交的代码', '真实', '题库里三种真实参考实现（正确 / 超时 / 有 bug）'],
+    ['判定与耗时', '真实', '真的编译运行过（教师端「重测」可复现）'],
+    ['互评评分', '模拟', '按「作业真实质量 + 评审者偏差 + 噪声」模型生成'],
+    ['异常检测结果', '真实', '对上述评分真实运行检测算法得出'],
+    ['统计与图表', '真实', '全部由算法对当前数据实时计算'],
+    ['你自己的提交', '完全真实', '真实编译运行，与模拟数据无关'],
+  ];
+  U.modal(
+    '关于演示数据',
+    h(
+      'div',
+      {},
+      h('p', { class: 'muted', style: { marginBottom: '14px', fontSize: '13px' } },
+        '当前展示的数据由 python backend/seed.py 生成（固定随机种子，可复现）。'
+        + '其中「记录」是模拟的，但「处理」都是真实算法——点开任意提交执行「重测」，结果与展示一致。'),
+      U.table(
+        [
+          { title: '内容', width: '130px', render: (r) => h('b', {}, r[0]) },
+          {
+            title: '性质', width: '90px',
+            render: (r) => U.badge(r[1], r[1] === '模拟' ? 'warn' : r[1] === '完全真实' ? 'brand' : 'ok'),
+          },
+          { title: '说明', render: (r) => h('span', { class: 'small' }, r[2]) },
+        ],
+        rows,
+        { dense: true }
+      ),
+      U.note('导入本班真实名单后，执行 DELETE FROM settings WHERE key=\'demo_seed\' 即可去掉此提示。', 'ok')
+    ),
+    { width: 660, actions: (close) => [U.btn('知道了', { tone: 'primary', onClick: close })] }
+  );
 }
 
 let shellEls = null;
@@ -351,6 +399,11 @@ async function boot() {
   if (!alive) {
     await api.useDemo(true);
     document.body.dataset.demo = '1';
+  }
+  try {
+    state.meta = await api.get('/api/meta');
+  } catch (e) {
+    state.meta = null;
   }
   if (state.token) {
     try {
