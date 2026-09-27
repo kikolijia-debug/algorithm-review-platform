@@ -42,6 +42,7 @@ python backend/seed.py          # 只重新灌数据
 python backend/verify_templates.py   # 校验题库参考程序（会真的编译运行，默认用缓存）
 python tools/export_demo.py     # 导出静态演示数据（供 GitHub Pages 使用）
 python tests/run_tests.py       # 运行算法单元测试
+python tools/audit_api.py       # 运行接口与流程功能审计（85 项，需服务已启动）
 ```
 
 ---

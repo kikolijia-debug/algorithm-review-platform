@@ -56,17 +56,27 @@ ok "python3 $(python3 -V 2>&1 | awk '{print $2}')  |  g++ $(g++ -dumpversion)"
 # ---------------------------------------------------------------- 2. 代码
 log "获取代码到 $APP_DIR"
 if [[ -d "$APP_DIR/.git" ]]; then
-  git -C "$APP_DIR" fetch --quiet origin
-  git -C "$APP_DIR" checkout --quiet main
-  git -C "$APP_DIR" reset --hard --quiet origin/main
-  ok "已更新到 $(git -C "$APP_DIR" rev-parse --short HEAD)"
+  # 先探测远端是否可达：连不上时继续用现有代码，绝不让一次网络抖动把服务弄挂
+  if git -C "$APP_DIR" fetch --quiet origin 2>/dev/null; then
+    git -C "$APP_DIR" checkout --quiet main
+    git -C "$APP_DIR" reset --hard --quiet origin/main
+    ok "已更新到 $(git -C "$APP_DIR" rev-parse --short HEAD)"
+  else
+    warn "无法连接 GitHub，继续使用现有代码（服务不受影响）"
+    ok "当前版本 $(git -C "$APP_DIR" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+  fi
 elif [[ -f "$APP_DIR/run.py" ]]; then
   # 支持「先把代码上传/解压到目标目录，再执行本脚本」的离线部署方式
   ok "检测到已存在的代码目录，跳过克隆（离线部署模式）"
 else
   mkdir -p "$(dirname "$APP_DIR")"
-  git clone --quiet "$REPO" "$APP_DIR"
-  ok "已克隆 $(git -C "$APP_DIR" rev-parse --short HEAD)"
+  if git clone --quiet "$REPO" "$APP_DIR" 2>/dev/null; then
+    ok "已克隆 $(git -C "$APP_DIR" rev-parse --short HEAD)"
+  else
+    warn "无法连接 GitHub（$REPO）"
+    warn "请先把代码上传到 $APP_DIR（例如 scp 上传后解压），再重新执行本脚本"
+    exit 1
+  fi
 fi
 mkdir -p "$APP_DIR/backend/data"
 
