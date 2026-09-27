@@ -124,33 +124,41 @@ LANGUAGES = {
         "name": "C++",
         "source": "main.cpp",
         "compile": lambda exe: [_which("g++"), "-O2", cpp_std_flag(), "-o", exe, "main.cpp"],
-        "run": lambda exe: [exe],
+        "run": lambda exe, mem_mb=256: [exe],
         "available": lambda: _which("g++") is not None,
         "setup": None,
+        "mem_multiplier": 1.0,
     },
     "c": {
         "name": "C11",
         "source": "main.c",
         "compile": lambda exe: [_which("gcc"), "-O2", "-std=c11", "-o", exe, "main.c", "-lm"],
-        "run": lambda exe: [exe],
+        "run": lambda exe, mem_mb=256: [exe],
         "available": lambda: _which("gcc") is not None,
         "setup": None,
+        "mem_multiplier": 1.0,
     },
     "python": {
         "name": "Python 3",
         "source": "main.py",
         "compile": None,
-        "run": lambda exe: [sys.executable, "main.py"],
+        "run": lambda exe, mem_mb=256: [sys.executable, "main.py"],
         "available": lambda: True,
         "setup": None,
+        "mem_multiplier": 1.0,
     },
     "java": {
         "name": "Java",
         "source": "Main.java",
         "compile": lambda exe: [_java_pair()[0], "-encoding", "UTF-8", "-d", ".", "Main.java"],
-        "run": lambda exe: [_java_pair()[1], "-Xss64m", "-cp", ".", "Main"],
+        # JVM 本身要占几十 MB，主流 OJ 都会为 Java 放宽内存限制（这里 2 倍），
+        # 并用 -Xmx 把堆上界压在限制之内，避免因默认堆过大被判 MLE。
+        "run": lambda exe, mem_mb=256: [
+            _java_pair()[1], "-Xmx%dm" % max(64, int(mem_mb)), "-Xss64m", "-cp", ".", "Main",
+        ],
         "available": lambda: _java_pair()[0] is not None and _java_pair()[1] is not None,
         "setup": None,
+        "mem_multiplier": 2.0,
     },
 }
 
@@ -529,7 +537,9 @@ def judge_submission(
                 }
             compile_message = (cr.get("stderr") or "").strip()
 
-        run_cmd = cfg["run"](exe)
+        mult = float(cfg.get("mem_multiplier", 1.0))
+        mem_limit_mb = memory_limit_mb * mult
+        run_cmd = cfg["run"](exe, mem_limit_mb)
         timeout_s = max(0.5, time_limit_ms / 1000.0)
         base_ms = startup_overhead_ms(lang)
         # 预热：把「首次启动磁盘扫描」的开销排除在计时之外
@@ -562,9 +572,11 @@ def judge_submission(
             elif len(r.get("stdout") or "") >= (1 << 20):
                 verdict = "OLE"
                 msg = "输出超过 1 MB"
-            elif memory_limit_mb and r.get("memory_kb", 0) > memory_limit_mb * 1024:
+            elif mem_limit_mb and r.get("memory_kb", 0) > mem_limit_mb * 1024:
                 verdict = "MLE"
-                msg = f"内存超过 {memory_limit_mb} MB"
+                msg = f"内存超过 {mem_limit_mb:.0f} MB" + (
+                    "（Java 已放宽为 2 倍）" if mult > 1 else ""
+                )
             elif not outputs_match(tc.get("expected"), r.get("stdout") or ""):
                 verdict = "WA"
                 msg = "输出与期望不一致"
