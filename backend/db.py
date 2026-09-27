@@ -256,6 +256,15 @@ CREATE TABLE IF NOT EXISTS settings (
     value TEXT
 );
 
+-- 会话持久化：服务重启后用户不必重新登录
+CREATE TABLE IF NOT EXISTS sessions (
+    token   TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    role    TEXT NOT NULL,
+    name    TEXT,
+    issued  REAL NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_sub_problem ON submissions(problem_id);
 CREATE INDEX IF NOT EXISTS idx_sub_user ON submissions(user_id);
 CREATE INDEX IF NOT EXISTS idx_alloc_a ON allocations(assignment_id);
