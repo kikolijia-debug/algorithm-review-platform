@@ -267,8 +267,8 @@ export function renderProblemList({ problems, courses }, _container, ctx) {
     U.pageHeader(teacher ? '题库管理' : '题库与作业', {
       eyebrow: 'PROBLEM BANK',
       sub: teacher
-        ? '创建与管理编程题、算法分析题、证明题与开放性问答题，配置测试数据、时间/空间限制与评分规则。'
-        : '按知识点浏览题目，查看个人完成情况与提交历史。',
+        ? '创建题目、配置测试数据与评分规则。'
+        : '按知识点浏览题目，查看完成情况。',
     }),
     filters,
     listBox
@@ -357,7 +357,7 @@ export function renderSubmissions({ rows, problems }) {
     {},
     U.pageHeader('我的提交', {
       eyebrow: 'SUBMISSIONS',
-      sub: '完整的历史提交、判定结果与错误记录；点击任意一行查看逐测试点详情。',
+      sub: '点击任意一行查看逐测试点详情。',
     }),
     h('div', { class: 'stat-row mb16' },
       U.stat(stats.total, '总提交次数'),
@@ -465,11 +465,10 @@ export function renderReviews({ rows }) {
     {},
     U.pageHeader('互评中心', {
       eyebrow: 'PEER REVIEW',
-      sub: '系统按最小费用流把其他同学的作业匿名分配给你。请按统一评分细则逐项打分，并给出具体、可执行的修改建议。',
+      sub: '按细则逐项打分，并写下具体意见。',
     }),
     U.note(
-      '匿名说明：你看不到作者身份，作者也看不到评审者身份；评审结果在评审截止后统一公布。'
-        + '异常评分（长期偏高/偏低、单次显著偏离、异常时长、固定互评关系）会被系统标记并交由教师复核。'
+      '双方互相匿名，结果在评审截止后公布。异常评分会被标记并交教师复核。'
     ),
     h('div', { class: 'mt16' },
       h('h3', { class: 'mb8', style: { fontSize: '15px' } }, `待完成互评（${pending.length}）`),
@@ -584,7 +583,7 @@ export function renderReviewTask({ task, startedAt }) {
     {},
     U.pageHeader('匿名互评', {
       eyebrow: 'REVIEW TASK #' + task.allocation_id,
-      sub: '请独立完成评分，系统会记录评审时长用于异常检测',
+      sub: '评审时长会被记录',
     }),
     h('div', { class: 'review-layout' }, left, right)
   );
@@ -686,7 +685,7 @@ export function renderSubjective({ rows, assignments, details }) {
     {},
     U.pageHeader('我的主观题', {
       eyebrow: 'SUBJECTIVE WORK',
-      sub: '算法设计说明、复杂度分析、证明题与开放性问答题的提交与互评结果。',
+      sub: '提交记录与互评结果',
       actions: h('a', { class: 'btn btn--primary', href: '#/problems' }, '去作答'),
     }),
     cards

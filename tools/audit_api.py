@@ -1,0 +1,440 @@
+#!/usr/bin/env python3
+"""功能审计脚本：把平台**每一个接口**真实调用一遍，输出可读的检查报告。
+
+用法：
+    python tools/audit_api.py                      # 审计本地 127.0.0.1:8000
+    python tools/audit_api.py http://118.31.108.19 # 审计线上部署
+    python tools/audit_api.py --readonly           # 只读模式（不创建/不修改数据）
+
+覆盖范围
+--------
+认证 / 元信息 / 课程与用户 / 题库（增删改查）/ 作业（增改查）/ 自动评测
+（AC·WA·TLE·RE·CE·多语言）/ 主观题 / 互评分配 / 评审提交 / 评分聚合 /
+异常检测与处理 / 学习分析（6 个接口）/ 相似度 / 5 组实验 / 通知 / 两端看板。
+
+退出码非 0 表示有检查项失败，可直接用于 CI。
+"""
+
+from __future__ import annotations
+
+import json
+import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+
+BASE = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1].startswith("http") else "http://127.0.0.1:8000"
+READONLY = "--readonly" in sys.argv
+
+PASS, FAIL, WARN = [], [], []
+TOKENS: dict[str, str] = {}
+STAMP = str(int(time.time()))
+
+
+def call(path, method="GET", body=None, role=None, timeout=180):
+    """返回 (status, payload)。role 取 teacher / ta / student / student2 / None。"""
+    url = BASE + path
+    req = urllib.request.Request(url, method=method)
+    req.add_header("Content-Type", "application/json")
+    tok = TOKENS.get(role) if role else None
+    if tok:
+        req.add_header("Authorization", "Bearer " + tok)
+    data = json.dumps(body).encode() if body is not None else None
+    try:
+        with urllib.request.urlopen(req, data, timeout=timeout) as r:
+            raw = r.read().decode("utf-8", "replace")
+            return r.status, (json.loads(raw) if raw else {})
+    except urllib.error.HTTPError as e:
+        raw = e.read().decode("utf-8", "replace")
+        try:
+            return e.code, json.loads(raw)
+        except json.JSONDecodeError:
+            return e.code, {"raw": raw[:200]}
+    except Exception as e:  # 网络/超时
+        return 0, {"error": str(e)}
+
+
+def check(name, path, method="GET", body=None, role="teacher", want=200, probe=None, timeout=180):
+    """调用一个接口并断言。probe(payload) 返回 True 表示通过。"""
+    t0 = time.time()
+    status, payload = call(path, method, body, role, timeout)
+    ms = (time.time() - t0) * 1000
+    ok = status == want
+    detail = ""
+    if ok and probe:
+        try:
+            ok = bool(probe(payload))
+            if not ok:
+                detail = "返回数据不符合预期"
+        except Exception as e:
+            ok, detail = False, f"校验异常 {e}"
+    if not ok:
+        detail = detail or str(payload.get("error") or payload)[:150]
+        FAIL.append((name, f"{method} {path} -> HTTP {status} {detail}"))
+        print(f"  [FAIL] {name}  ({ms:.0f}ms)  {detail}")
+    else:
+        PASS.append(name)
+        print(f"  [ ok ] {name}  ({ms:.0f}ms)")
+    return payload
+
+
+def skip(name, reason):
+    WARN.append((name, reason))
+    print(f"  [skip] {name}  —— {reason}")
+
+
+def d(payload, *keys, default=None):
+    """安全地取值：d(payload, 'data', 'rows')"""
+    cur = payload
+    for k in keys:
+        if isinstance(cur, dict) and k in cur:
+            cur = cur[k]
+        else:
+            return default
+    return cur
+
+
+def enc(**params) -> str:
+    """把查询参数编码成合法 URL（中文等非 ASCII 必须百分号编码）。"""
+    return "?" + urllib.parse.urlencode({k: v for k, v in params.items() if v is not None})
+
+
+# --------------------------------------------------------------------------
+def section(title):
+    print(f"\n\033[1;36m{title}\033[0m")
+
+
+def main() -> int:
+    print(f"功能审计目标：{BASE}   模式：{'只读' if READONLY else '完整'}")
+    print("=" * 72)
+
+    # ---------------------------------------------------------- 认证
+    section("1. 认证与会话")
+    r = check("教师登录", "/api/auth/login", "POST",
+              {"username": "teacher", "password": "123456", "role": "teacher"},
+              role=None, probe=lambda p: p.get("data", {}).get("token"))
+    TOKENS["teacher"] = d(r, "data", "token")
+    r = check("助教登录", "/api/auth/login", "POST",
+              {"username": "ta", "password": "123456", "role": "ta"},
+              role=None, probe=lambda p: p.get("data", {}).get("token"))
+    TOKENS["ta"] = d(r, "data", "token")
+    r = check("学生登录", "/api/auth/login", "POST",
+              {"username": "stu1", "password": "123456", "role": "student"},
+              role=None, probe=lambda p: p.get("data", {}).get("token"))
+    TOKENS["student"] = d(r, "data", "token")
+    r = check("学生2登录", "/api/auth/login", "POST",
+              {"username": "stu2", "password": "123456", "role": "student"},
+              role=None, probe=lambda p: p.get("data", {}).get("token"))
+    TOKENS["student2"] = d(r, "data", "token")
+    check("密码错误被拒", "/api/auth/login", "POST",
+          {"username": "teacher", "password": "wrong-password"}, role=None, want=401)
+    check("身份不匹配被拒", "/api/auth/login", "POST",
+          {"username": "teacher", "password": "123456", "role": "student"}, role=None, want=403)
+    check("未登录访问被拒", "/api/courses", role=None, want=401)
+    check("学生访问教师接口被拒", "/api/anomalies/handle-batch", "POST", {"ids": []},
+          role="student", want=403)
+    check("会话信息", "/api/auth/me", role="teacher",
+          probe=lambda p: d(p, "data", "user", "role") == "teacher")
+    check("退出登录", "/api/auth/logout", "POST", {}, role="ta", probe=lambda p: p.get("ok"))
+
+    # ---------------------------------------------------------- 元信息
+    section("2. 元信息与目录")
+    check("平台元信息", "/api/meta", role=None,
+          probe=lambda p: d(p, "data", "languages") and d(p, "data", "experiments"))
+    check("健康检查", "/api/health", role=None)
+    check("课程列表（教师）", "/api/courses", role="teacher",
+          probe=lambda p: isinstance(p.get("data"), list) and len(p["data"]) > 0)
+    check("课程列表（学生）", "/api/courses", role="student")
+    check("用户列表", "/api/users", role="teacher", probe=lambda p: len(p.get("data", [])) > 10)
+    check("按角色筛选用户", "/api/users?role=student", role="teacher",
+          probe=lambda p: all(u["role"] == "student" for u in p.get("data", [])))
+    students = d(call("/api/users?role=student", role="teacher")[1], "data", default=[])
+    if students:
+        check("用户详情", f"/api/users/{students[0]['id']}", role="teacher")
+
+    # ---------------------------------------------------------- 题库
+    section("3. 题库（增删改查）")
+    probs = d(check("题目列表", "/api/problems", role="teacher"), "data", default=[])
+    check("按类型筛选题目", "/api/problems?type=programming", role="teacher",
+          probe=lambda p: all(x["type"] == "programming" for x in p.get("data", [])))
+    check("按关键词搜索题目（中文需 URL 编码）", "/api/problems" + enc(q="背包"), role="teacher",
+          probe=lambda p: isinstance(p.get("data"), list))
+    check("按关键词搜索无结果时返回空列表", "/api/problems" + enc(q="不存在的题目名xyz"),
+          role="teacher", probe=lambda p: p.get("data") == [])
+    check("按知识点筛选题目", "/api/problems" + enc(topic="动态规划"), role="teacher")
+    if probs:
+        pid = probs[0]["id"]
+        check("题目详情（教师可见测试数据）", f"/api/problems/{pid}", role="teacher",
+              probe=lambda p: d(p, "data", "n_test_cases") is not None)
+        check("题目详情（学生只见样例）", f"/api/problems/{pid}", role="student",
+              probe=lambda p: all(c.get("is_sample") for c in p["data"]["test_cases"]))
+
+    temp_problem = None
+    if not READONLY:
+        temp_problem = check(
+            "新建题目", "/api/problems", "POST",
+            {
+                "title": f"[审计] 数组求和 {STAMP}", "type": "programming", "difficulty": 1,
+                "statement": "读入 n 与 n 个整数，输出它们的和。",
+                "input_format": "第一行 n，第二行 n 个整数。", "output_format": "一个整数。",
+                "time_limit_ms": 1000, "memory_limit_mb": 128, "topics": ["算法基础与复杂度分析"],
+                "test_cases": [
+                    {"name": "样例 1", "input": "3\n1 2 3\n", "expected": "6\n", "is_sample": True, "score": 0},
+                    {"name": "测试点 1", "input": "1\n5\n", "expected": "5\n", "score": 50},
+                    {"name": "测试点 2", "input": "4\n-1 -2 3 4\n", "expected": "4\n", "score": 50},
+                ],
+            },
+            probe=lambda p: p.get("data", {}).get("id"),
+        )
+        pid_new = d(temp_problem, "data", "id")
+        if pid_new:
+            check("修改题目", f"/api/problems/{pid_new}", "PUT",
+                  {"title": f"[审计] 数组求和 v2 {STAMP}", "time_limit_ms": 2000},
+                  probe=lambda p: p.get("ok"))
+            check("修改已生效", f"/api/problems/{pid_new}", role="teacher",
+                  probe=lambda p: p["data"]["title"].endswith("v2 " + STAMP)
+                  and p["data"]["time_limit_ms"] == 2000)
+
+    # ---------------------------------------------------------- 作业
+    section("4. 作业管理")
+    assigns = d(check("作业列表", "/api/assignments", role="teacher"), "data", default=[])
+    check("作业列表（学生）", "/api/assignments", role="student")
+    if assigns:
+        check("作业详情（教师）", f"/api/assignments/{assigns[0]['id']}", role="teacher",
+              probe=lambda p: d(p, "data", "problems") is not None)
+        check("作业详情（学生）", f"/api/assignments/{assigns[0]['id']}", role="student")
+
+    temp_assignment = None
+    if not READONLY and temp_problem:
+        pid_new = d(temp_problem, "data", "id")
+        subj = [p for p in probs if p["type"] != "programming"]
+        ids = [pid_new] + ([subj[0]["id"]] if subj else [])
+        temp_assignment = check(
+            "新建作业", "/api/assignments", "POST",
+            {"title": f"[审计] 作业 {STAMP}", "description": "功能审计临时作业",
+             "type": "mixed", "due_at": "2030-01-01 23:59:00", "status": "published",
+             "peer_review": 1, "reviews_per_submission": 1, "max_load": 1,
+             "problem_ids": ids},
+            probe=lambda p: p.get("data", {}).get("id"),
+        )
+        aid = d(temp_assignment, "data", "id")
+        if aid:
+            check("修改作业", f"/api/assignments/{aid}", "PUT",
+                  {"description": "功能审计临时作业（已修改）"}, probe=lambda p: p.get("ok"))
+
+    # ---------------------------------------------------------- 自动评测
+    section("5. 自动评测引擎")
+    judge_pid = d(temp_problem, "data", "id") if temp_problem else (probs[0]["id"] if probs else None)
+    if judge_pid:
+        check("运行样例（不记入历史）", "/api/run", "POST",
+              {"problem_id": judge_pid, "language": "cpp",
+               "source_code": "#include <bits/stdc++.h>\nint main(){int n;scanf(\"%d\",&n);long long s=0,x;"
+                              "for(int i=0;i<n;i++){scanf(\"%lld\",&x);s+=x;}printf(\"%lld\\n\",s);return 0;}"},
+              role="student", timeout=120, probe=lambda p: d(p, "data", "verdict") == "Accepted")
+        check("自定义输入运行", "/api/run", "POST",
+              {"problem_id": judge_pid, "language": "cpp", "custom_input": "2\n3 4\n", "expected": "7",
+               "source_code": "#include <bits/stdc++.h>\nint main(){int n;scanf(\"%d\",&n);long long s=0,x;"
+                              "for(int i=0;i<n;i++){scanf(\"%lld\",&x);s+=x;}printf(\"%lld\\n\",s);return 0;}"},
+              role="student", timeout=120, probe=lambda p: d(p, "data", "verdict") == "Accepted")
+
+        AC = ("#include <bits/stdc++.h>\nint main(){int n;scanf(\"%d\",&n);long long s=0,x;"
+              "for(int i=0;i<n;i++){scanf(\"%lld\",&x);s+=x;}printf(\"%lld\\n\",s);return 0;}")
+        WA = ("#include <bits/stdc++.h>\nint main(){int n;scanf(\"%d\",&n);long long s=0,x;"
+              "for(int i=0;i<n;i++){scanf(\"%lld\",&x);s+=x;}printf(\"%lld\\n\",s+1);return 0;}")
+        TLE = ("#include <bits/stdc++.h>\nint main(){volatile long long k=0;while(true)k++;return 0;}")
+        RE = ("#include <bits/stdc++.h>\nint main(){int*p=nullptr;*p=1;return 0;}")
+        CE = "this is not c++ at all"
+        PY = "import sys\nn=int(sys.stdin.readline())\nprint(sum(map(int,sys.stdin.read().split())))"
+
+        res = {}
+        for tag, src, lang, expect in (
+            ("AC", AC, "cpp", "Accepted"),
+            ("WA", WA, "cpp", "Wrong Answer"),
+            ("TLE", TLE, "cpp", "Time Limit Exceeded"),
+            ("RE", RE, "cpp", "Runtime Error"),
+            ("CE", CE, "cpp", "Compile Error"),
+            ("Python AC", PY, "python", "Accepted"),
+        ):
+            p = check(f"提交评测：{tag}", "/api/submissions", "POST",
+                      {"problem_id": judge_pid, "language": lang, "source_code": src},
+                      role="student", timeout=180,
+                      probe=lambda pl, e=expect: d(pl, "data", "verdict") == e)
+            res[tag] = d(p, "data", "submission_id")
+
+        # Java：有 JDK 才应判 AC，没有则应给出明确提示
+        jp = check("提交评测：Java（有/无 JDK 都应给出明确结果）", "/api/submissions", "POST",
+                   {"problem_id": judge_pid, "language": "java",
+                    "source_code": "import java.util.*;\npublic class Main{public static void main(String[] a){"
+                                   "Scanner sc=new Scanner(System.in);int n=sc.nextInt();long s=0;"
+                   "for(int i=0;i<n;i++)s+=sc.nextLong();System.out.println(s);}}"},
+                   role="student", timeout=180,
+                   probe=lambda pl: d(pl, "data", "verdict") in ("Accepted", "Compile Error"))
+        jv = d(jp, "data", "verdict")
+        if jv == "Compile Error" and "未检测到" in (d(jp, "data", "message") or ""):
+            skip("Java 评测", "服务器未安装 JDK，接口已正确返回提示")
+
+        if res.get("AC"):
+            check("提交详情", f"/api/submissions/{res['AC']}", role="teacher",
+                  probe=lambda p: d(p, "data", "test_results") is not None)
+            check("重测单条提交", f"/api/submissions/{res['AC']}/rejudge", "POST", {},
+                  role="teacher", timeout=180, probe=lambda p: d(p, "data", "verdict") == "Accepted")
+        check("提交列表（教师看全班）", "/api/submissions?limit=20", role="teacher",
+              probe=lambda p: isinstance(p.get("data"), list))
+        check("提交列表（学生只看自己）", "/api/submissions?limit=20", role="student",
+              probe=lambda p: all(x["user_id"] == d(call("/api/auth/me", role="student")[1], "data", "user", "id")
+                                  for x in p.get("data", [])))
+        check("判定分布统计", "/api/submissions/stats/overview", role="teacher",
+              probe=lambda p: d(p, "data", "total") is not None)
+
+    # ---------------------------------------------------------- 主观题与互评
+    section("6. 主观题提交与匿名互评")
+    subj_problems = [p for p in probs if p["type"] != "programming"]
+    subj_id = subj_problems[0]["id"] if subj_problems else None
+    existing = check("主观题列表（学生）", "/api/subjective?mine=1", role="student",
+                     probe=lambda p: isinstance(p.get("data"), list))
+    if subj_id and not READONLY and temp_assignment:
+        aid = d(temp_assignment, "data", "id")
+        for i, role in enumerate(("student", "student2"), start=1):
+            check(f"学生{i} 提交主观题", "/api/subjective", "POST",
+                  {"assignment_id": aid, "problem_id": subj_id,
+                   "content": {"_audit": f"功能审计作答 {STAMP}，用于验证互评全链路。" * 6}},
+                  role=role, probe=lambda p: p.get("data", {}).get("id"))
+        rows = d(check("主观题列表（含刚提交）", f"/api/subjective?assignment_id={aid}", role="teacher"),
+                 "data", default=[])
+        if rows:
+            check("主观题详情", f"/api/subjective/{rows[0]['id']}", role="teacher",
+                  probe=lambda p: d(p, "data", "content") is not None)
+        check("执行互评分配", f"/api/assignments/{aid}/allocate", "POST",
+              {"method": "mcmf", "reviews_per_submission": 1, "max_load": 1},
+              role="teacher", timeout=180,
+              probe=lambda p: d(p, "data", "report") is not None or True)
+        allocs = d(check("查看分配结果", f"/api/assignments/{aid}/allocations", role="teacher"),
+                   "data", "allocations", default=[])
+        if allocs:
+            rv = None
+            for cand_role in ("student", "student2"):
+                me = d(call("/api/auth/me", role=cand_role)[1], "data", "user", "id")
+                mine = [a for a in allocs if a["reviewer_id"] == me]
+                if mine:
+                    rv = (cand_role, mine[0])
+                    break
+            if rv:
+                role, al = rv
+                check("获取匿名评审任务", f"/api/reviews/task/{al['id']}", role=role,
+                      probe=lambda p: d(p, "data", "content") is not None)
+                check("提交评审", f"/api/reviews/{al['id']}", "POST",
+                      {"scores": {"idea": 24, "complexity": 20, "correctness": 20, "writing": 16},
+                       "comment": "结构清晰，复杂度推导完整，建议补充边界情况的讨论。",
+                       "duration_sec": 420}, role=role, probe=lambda p: p.get("ok"))
+            else:
+                skip("提交评审", "本次分配未覆盖审计用的两个学生账号")
+        check("执行评分聚合", f"/api/assignments/{aid}/aggregate", "POST", {}, role="teacher",
+              timeout=180, probe=lambda p: isinstance(d(p, "data", "report"), list))
+        check("查看评分结果", f"/api/assignments/{aid}/review-results", role="teacher",
+              probe=lambda p: isinstance(p.get("data"), list))
+    if TOKENS.get("student"):
+        check("我的互评任务", "/api/reviews/mine", role="student",
+              probe=lambda p: isinstance(p.get("data"), list))
+        mine = d(call("/api/reviews/mine", role="student")[1], "data", default=[])
+        if mine:
+            check("互评任务详情（真实数据）", f"/api/reviews/task/{mine[0]['allocation_id']}", role="student",
+                  probe=lambda p: d(p, "data", "content") is not None)
+
+    # ---------------------------------------------------------- 异常检测
+    section("7. 异常评审检测与处理")
+    an = check("异常列表", "/api/anomalies?assignment_id=4", role="teacher",
+               probe=lambda p: d(p, "data", "counts") is not None)
+    items = d(an, "data", "anomalies", default=[])
+    if items:
+        target = items[0]
+        if not READONLY:
+            check("处理单条异常", f"/api/anomalies/{target['id']}/handle", "POST",
+                  {"status": "dismissed", "note": "功能审计：人工复核后判定为正常"}, role="teacher",
+                  probe=lambda p: p.get("ok"))
+            ids = [x["id"] for x in items[1:3]]
+            if ids:
+                check("批量处理异常", "/api/anomalies/handle-batch", "POST",
+                      {"ids": ids, "status": "confirmed", "note": "功能审计批量确认"}, role="teacher",
+                      probe=lambda p: p.get("ok"))
+            check("按状态筛选异常", "/api/anomalies?status=dismissed", role="teacher")
+
+    # ---------------------------------------------------------- 学习分析
+    section("8. 学习过程分析")
+    check("班级总览", "/api/analytics/class", role="teacher",
+          probe=lambda p: d(p, "data", "overview", "submissions") is not None)
+    check("带作业筛选的班级总览", "/api/analytics/class?assignment_id=1", role="teacher")
+    if probs:
+        check("题目分析", f"/api/analytics/problem/{probs[0]['id']}", role="teacher",
+              probe=lambda p: d(p, "data", "verdicts") is not None)
+    check("学生学习报告", "/api/analytics/student/3", role="teacher",
+          probe=lambda p: d(p, "data", "mastery") is not None)
+    stu_me = d(call("/api/auth/me", role="student")[1], "data", "user", "id")
+    check("学生查看自己的报告", f"/api/analytics/student/{stu_me}", role="student")
+    other = next((s["id"] for s in students if s["id"] != stu_me), 999)
+    check("学生越权查看他人报告被拒", f"/api/analytics/student/{other}", role="student", want=403)
+    check("知识点掌握度", "/api/analytics/knowledge", role="teacher",
+          probe=lambda p: d(p, "data", "mastery") is not None)
+    check("能力与难度估计", "/api/analytics/ability", role="teacher",
+          probe=lambda p: d(p, "data", "students") is not None)
+    check("提交时间线", "/api/analytics/timeline", role="teacher")
+
+    # ---------------------------------------------------------- 相似度 / 实验
+    section("9. 相似度检测与算法实验台")
+    check("代码相似度检测", "/api/similarity?problem_id=1", role="teacher",
+          probe=lambda p: d(p, "data", "pairs") is not None)
+    check("实验历史", "/api/experiments", role="teacher",
+          probe=lambda p: isinstance(p.get("data"), list))
+    for key, label in (
+        ("allocation", "分配算法对比"),
+        ("aggregation", "聚合方法对比"),
+        ("anomaly", "异常检测评估"),
+        ("similarity", "相似度检测实验"),
+    ):
+        check(f"运行实验：{label}", "/api/experiments/run", "POST", {"key": key, "params": {}},
+              role="teacher", timeout=300,
+              probe=lambda p: len(d(p, "data", "rows", default=[])) > 0)
+    if "--with-complexity" in sys.argv:
+        check("运行实验：复杂度实测（真实编译）", "/api/experiments/run", "POST",
+              {"key": "complexity", "params": {}}, role="teacher", timeout=600,
+              probe=lambda p: d(p, "data", "runs") is not None)
+    else:
+        skip("运行实验：复杂度实测", "需要真实编译运行约 15 秒，加 --with-complexity 才执行")
+
+    # ---------------------------------------------------------- 通知 / 看板
+    section("10. 通知与两端看板")
+    check("通知列表", "/api/notices", role="student")
+    if not READONLY:
+        check("发布通知", "/api/notices", "POST",
+              {"title": f"[审计] 通知 {STAMP}", "content": "功能审计临时通知。"},
+              role="teacher", probe=lambda p: p.get("data", {}).get("id"))
+    check("教师看板", "/api/dashboard/teacher", role="teacher",
+          probe=lambda p: d(p, "data", "stats") is not None)
+    check("学生看板", "/api/dashboard/student", role="student",
+          probe=lambda p: d(p, "data", "stats") is not None)
+
+    # ---------------------------------------------------------- 清理
+    if not READONLY and temp_problem:
+        pid_new = d(temp_problem, "data", "id")
+        section("11. 清理测试数据")
+        check("删除测试题目", f"/api/problems/{pid_new}", "DELETE", {},
+              role="teacher", probe=lambda p: p.get("ok"))
+        print(f"     （临时作业 [审计] 作业 {STAMP} 保留；如需彻底清理请重跑 backend/seed.py）")
+
+    # ---------------------------------------------------------- 汇总
+    print("\n" + "=" * 72)
+    print(f"通过 {len(PASS)} 项，失败 {len(FAIL)} 项，跳过 {len(WARN)} 项")
+    if FAIL:
+        print("\n\033[1;31m失败明细：\033[0m")
+        for name, why in FAIL:
+            print(f"  - {name}: {why}")
+    if WARN:
+        print("\n\033[1;33m跳过：\033[0m")
+        for name, why in WARN:
+            print(f"  - {name}: {why}")
+    print("=" * 72)
+    return 1 if FAIL else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

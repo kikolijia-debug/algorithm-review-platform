@@ -77,18 +77,18 @@ export function renderTeacherDashboard({ dash, klass }) {
     U.cardHead('需要你关注', { sub: '截止、互评与异常' }),
     h('div', { class: 'col', style: { gap: '10px' } },
       st.pending_reviews
-        ? U.alertRow('medium', `${st.pending_reviews} 份互评尚未完成`, '可在「评审过程管理」中查看每位评审者的进度，并发送提醒或重新分配。',
+        ? U.alertRow('medium', `${st.pending_reviews} 份互评尚未完成`, '可在「评审过程管理」中查看进度。',
             h('a', { class: 'btn btn--soft btn--xs', href: '#/teacher/reviews' }, '去处理'))
         : null,
       st.open_anomalies
-        ? U.alertRow('high', `${st.open_anomalies} 条异常评审待复核`, '包括长期偏高/偏低、单次显著偏离、异常评审时长与固定互评关系。',
+        ? U.alertRow('high', `${st.open_anomalies} 条异常评审待复核`, '包含长期偏高/偏低、单次偏离与固定互评关系。',
             h('a', { class: 'btn btn--soft btn--xs', href: '#/teacher/anomalies' }, '去复核'))
         : null,
       needAttention.length
-        ? U.alertRow('low', `${needAttention.length} 次作业处于互评或未截止状态`, '互评截止后结果会自动公布给学生。')
+        ? U.alertRow('low', `${needAttention.length} 次作业处于互评或未截止状态`, '截止后结果自动公布。')
         : null,
       (!st.pending_reviews && !st.open_anomalies)
-        ? U.empty('暂无需要处理的事项', '当前所有互评均已完成，异常检测未发现高风险评审。')
+        ? U.empty('暂无需要处理的事项', '互评已完成，未发现高风险评审。')
         : null
     )
   );
@@ -195,7 +195,7 @@ export function renderAssignments({ assignments, problems, courses }) {
     {},
     U.pageHeader('作业管理', {
       eyebrow: 'ASSIGNMENTS',
-      sub: '创建作业、配置题目与评分规则、设置互评人数与截止时间；支持发布、延长截止与一键重测。',
+      sub: '创建作业、配置题目与评分规则、设置互评与截止时间。',
       actions: U.btn('布置新作业', { tone: 'primary', icon: U.icon.plus, onClick: () => createAssignment(problems, courses, () => router.resolve()) }),
     }),
     U.card(
@@ -533,7 +533,7 @@ export function renderTeacherSubmissions({ rows, problems, stats }) {
     {},
     U.pageHeader('提交与评测', {
       eyebrow: 'SUBMISSIONS',
-      sub: '查看全班提交记录、判定分布与运行资源使用；支持按题目/判定筛选、查看源码与重新评测。',
+      sub: '提交记录、判定分布与运行资源；支持筛选、查看源码与重测。',
       actions: h('a', { class: 'btn btn--ghost', href: '#/teacher/similarity' }, '代码相似度检测'),
     }),
     h('div', { class: 'dash-grid mb16' },

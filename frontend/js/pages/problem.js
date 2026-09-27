@@ -244,7 +244,7 @@ function renderResult(box, r, { preview }) {
       ),
       r.compile_message ? U.note('编译告警：' + r.compile_message.slice(0, 300), 'warn') : null,
       (r.warnings || []).length
-        ? U.note('静态检查提示：代码中出现了 ' + r.warnings.join('、') + '。教学环境仅做资源限制，生产环境的评测沙箱应使用容器隔离。', 'warn')
+        ? U.note('代码里出现了 ' + r.warnings.join('、') + '（教学沙箱只做资源限制）。', 'warn')
         : null,
       results.length
         ? h('div', { class: 'mt12' }, ...results.map((c) =>
@@ -265,7 +265,7 @@ function renderResult(box, r, { preview }) {
                     h('div', { class: 'sample__body' },
                       h('div', { class: 'sample__col' }, '期望输出：\n' + String(c.expected || '').slice(0, 800)),
                       h('div', { class: 'sample__col' }, '实际输出：\n' + String(c.actual || '').slice(0, 800))))
-                : U.note('该判定与输出无关（例如超时或运行错误），请关注上方的提示。');
+                : U.note('该判定与输出无关，请看上方提示。');
             })())
         : null
     )
@@ -328,7 +328,7 @@ function subjectivePane(problem) {
               h('span', { class: 'rubric-item__name' }, r.name),
               h('span', { class: 'rubric-item__score' }, r.max + ' 分')),
             h('p', { class: 'rubric-item__desc' }, r.desc || ''))))
-      : U.note('教师尚未配置评分细则，将使用平台默认细则（思路 30 / 复杂度 25 / 正确性 25 / 表达 20）。')
+      : U.note('教师未配置细则，使用默认细则（30 / 25 / 25 / 20）。')
   );
 
   return h(

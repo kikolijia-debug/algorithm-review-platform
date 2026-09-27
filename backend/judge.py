@@ -39,6 +39,16 @@ from .algo.complexity import fit_complexity
 
 IS_WIN = os.name == "nt"
 
+# Windows：让子进程崩溃时直接退出，不弹「程序已停止工作」对话框。
+# 否则一个空指针解引用会把进程挂住，被评测引擎误判成 TLE（Linux 上则是正常的 RE）。
+if IS_WIN:  # pragma: no cover - 平台相关
+    try:
+        import ctypes
+
+        ctypes.windll.kernel32.SetErrorMode(0x0001 | 0x0002 | 0x8000)
+    except Exception:
+        pass
+
 #: 判定结果的标准全称（与前端展示、数据库记录保持一致）
 VERDICT_FULL = {
     "AC": "Accepted",
@@ -484,11 +494,13 @@ def judge_submission(
     """
     lang = (language or "cpp").lower()
     if lang not in LANGUAGES:
-        return {"verdict": "CE", "message": f"不支持的语言：{language}", "score": 0, "results": []}
+        return {"verdict": full_verdict("CE"), "code": "CE",
+                "message": f"不支持的语言：{language}", "score": 0, "results": []}
     cfg = LANGUAGES[lang]
     if not cfg["available"]():
         return {
-            "verdict": "CE",
+            "verdict": full_verdict("CE"),
+            "code": "CE",
             "message": f"本机未检测到 {cfg['name']} 编译器，无法评测该语言",
             "score": 0,
             "results": [],
@@ -503,11 +515,13 @@ def judge_submission(
         if cfg["compile"] is not None:
             cmd = cfg["compile"](exe)
             if not cmd or not cmd[0]:
-                return {"verdict": "CE", "message": "编译器不可用", "score": 0, "results": []}
+                return {"verdict": full_verdict("CE"), "code": "CE", "message": "编译器不可用",
+                        "score": 0, "results": []}
             cr = run_process(cmd, workdir, timeout_s=25.0)
             if cr.get("returncode") != 0:
                 return {
-                    "verdict": "CE",
+                    "verdict": full_verdict("CE"),
+                    "code": "CE",
                     "message": (cr.get("stderr") or cr.get("error") or "编译失败")[:4000],
                     "score": 0,
                     "results": [],

@@ -167,7 +167,7 @@ export function renderAnalytics({ klass, knowledge, timeline, ability }, contain
     return h(
       'div',
       {},
-      U.note('题目分析帮助学生理解「复杂度是否达标」：通过率反映正确性，平均/最大用时反映效率，提交次数反映调试成本。'),
+      U.note('通过率看正确性，用时看效率，提交次数看调试成本。'),
       h('div', { class: 'filterbar mt12' }, sel),
       pane
     );
@@ -208,7 +208,7 @@ export function renderAnalytics({ klass, knowledge, timeline, ability }, contain
   return h('div', {},
     U.pageHeader('学习过程分析', {
       eyebrow: 'LEARNING ANALYTICS',
-      sub: '答题情况、提交记录、通过率、提交次数、运行时间与主观题评分的多维统计，用于定位教学重点。',
+      sub: '通过率、提交次数、运行时间与主观题评分的多维统计。',
     }),
     tabBar, tabsBox);
 }
@@ -295,10 +295,10 @@ export function renderAbility({ ability, knowledge }) {
     {},
     U.pageHeader('能力与难度估计', {
       eyebrow: 'IRT / ELO',
-      sub: '用 1PL Rasch 模型联合估计学生能力 θ 与题目难度 b，并与 ELO 增量更新结果对照。小样本下 1PL 更稳健。',
+      sub: '1PL Rasch 联合估计能力 θ 与难度 b，并与 ELO 对照。',
     }),
-    U.note(`本次估计基于 ${ability.n_obs || 0} 条首次提交记录，迭代 ${ability.iters} 次，对数似然 ${ability.loglik}。`
-      + ' θ 与 b 只依赖二者之差（模型不可辨识整体平移），因此都做了中心化处理。', 'ok'),
+    U.note(`基于 ${ability.n_obs || 0} 条首次提交，迭代 ${ability.iters} 次，对数似然 ${ability.loglik}。`
+      + 'θ 与 b 只依赖差值，已做中心化。', 'ok'),
     h('div', { class: 'grid grid--side mt16' },
       U.card(
         U.cardHead('学生能力分布', { sub: 'IRT 能力值（0-100 归一化）' }),
@@ -528,7 +528,7 @@ export function renderReviewAdmin({ assignments, selected, allocs, results, anom
     return h(
       'div',
       {},
-      U.note('评审者可信度由 EM 迭代估计：bias 为宽严偏差（正值偏松），reliability 为一致性权重（越低说明打分越不稳定，聚合时权重越小）。', 'ok'),
+      U.note('bias 为宽严偏差（正值偏松），reliability 为一致性权重。', 'ok'),
       U.card(
         U.cardHead('评审者偏差与可信度', { sub: '按 |bias| 降序排列' }),
         h('div', { class: 'grid grid--2' },
@@ -593,7 +593,7 @@ export function renderReviewAdmin({ assignments, selected, allocs, results, anom
     {},
     U.pageHeader('评审过程管理', {
       eyebrow: 'PEER REVIEW OPS',
-      sub: '查看分配方案与进度、比较不同分配算法、执行评分聚合、复核疑似不公平评分。',
+      sub: '分配方案、评分聚合与可疑评分复核。',
     }),
     selector, bar, pane
   );
@@ -666,7 +666,7 @@ export function renderAnomalies({ assignments, data }) {
     {},
     U.pageHeader('异常评审检测', {
       eyebrow: 'ANOMALY DETECTION',
-      sub: '识别长期偏高/偏低评分、单次评分偏离、异常评审时长、评分无区分度与固定互评/抱团关系，并降低其聚合权重或交教师复核。',
+      sub: '长期偏高/偏低、单次偏离、异常时长、无区分度与固定互评关系。',
     }),
     h('div', { class: 'stat-row mb16' },
       U.stat(data.counts.high, '高风险', { tone: 'danger' }),
@@ -717,10 +717,9 @@ export function renderSimilarity({ problems, data }) {
     {},
     U.pageHeader('代码相似度检测', {
       eyebrow: 'PLAGIARISM DETECTION',
-      sub: 'Winnowing 指纹 + 倒排索引：规范化 token → 滚动哈希 → 窗口最小哈希指纹 → Jaccard 相似度 → 并查集聚类。',
+      sub: 'Winnowing 指纹 + 倒排索引 + 并查集聚类。',
     }),
-    U.note('指纹法擅长识别「复制粘贴式抄袭」，对变量改名、加注释、调整空白几乎完全免疫；'
-      + '对深度重写（换数据结构、换循环结构）的检出率会下降，此时应结合语法树或语义相似度方法。', 'ok'),
+    U.note('对变量改名、加注释、调格式几乎免疫；对深度重写灵敏度有限，需结合语法树或语义方法。', 'ok'),
     h('div', { class: 'filterbar mt12 mb16' },
       U.select([{ value: '', label: '全部题目' }, ...problems.map((p) => ({ value: p.id, label: p.title }))],
         { value: router.currentRoute().query.problem_id || '', onchange: (e) => router.navigate('/teacher/similarity?' + new URLSearchParams({ ...router.currentRoute().query, problem_id: e.target.value })) }),
@@ -840,7 +839,7 @@ export function renderExperiments({ meta, history }) {
     {},
     U.pageHeader('算法实验台', {
       eyebrow: 'ALGORITHM LAB',
-      sub: '把「问题建模 → 算法设计 → 复杂度分析 → 实验验证」串成一条可复现的链路：每组实验都会给出指标对比表、图表与结论。',
+      sub: '每组实验给出指标对比、图表与结论，结果可导出。',
     }),
     h('div', { class: 'exp-panel' },
       h('div', {}, U.card(U.cardHead('实验列表', { sub: `${experiments.length} 组` }), listBox)),

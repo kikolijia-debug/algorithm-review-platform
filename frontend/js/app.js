@@ -369,7 +369,7 @@ async function boot() {
   router.start();
   if (state.demo) {
     setTimeout(
-      () => toast('未检测到后端服务，已切换到「内置演示数据」模式（只读），运行 python run.py 可体验完整评测功能', 'warn', 6500),
+      () => toast('未检测到后端，已切换到只读演示模式。本地运行 python run.py 可用完整功能。', 'warn', 6500),
       600
     );
   }

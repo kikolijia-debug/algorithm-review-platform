@@ -125,7 +125,7 @@ export async function openProblemEditor(problem, onSaved) {
     if (draft.type !== 'programming') return [];
     return [
       h('h3', { style: { fontSize: '15px', marginBottom: '8px' } }, '测试数据'),
-      U.note('测试点用于自动评测：样例是学生可见的题目示例（通常不计分），其余测试点隐藏。每添加一个大测试点都能更准确地识别复杂度不达标的实现。'),
+      U.note('样例对学生可见（通常不计分），其余测试点隐藏。大测试点能区分复杂度是否达标。'),
       h('div', { class: 'mt12' }, caseBox),
       h('div', { class: 'row mt12' },
         U.btn('添加测试点', { tone: 'ghost', size: 'sm', icon: U.icon.plus, onClick: () => { cases.push({ name: '测试点 ' + (cases.length + 1), input: '', expected: '', is_sample: false, score: 10 }); paintCases(); } }),
@@ -137,7 +137,7 @@ export async function openProblemEditor(problem, onSaved) {
     if (draft.type === 'programming') return [];
     return [
       h('h3', { style: { fontSize: '15px', marginBottom: '8px' } }, '互评评分细则'),
-      U.note('互评时评审者会按下面每个维度独立打分，总和即为该份评审的总分。维度设计应覆盖「思路—复杂度—正确性—表达」。', 'ok'),
+      U.note('每个维度独立打分，总和为这份评审的总分。', 'ok'),
       h('div', { class: 'mt12' }, ...rubric.map((r, i) =>
         h('div', { class: 'form-grid form-grid--3', style: { marginBottom: '10px' } },
           h('input', { class: 'input', value: r.name, placeholder: '维度名称', oninput: (e) => (r.name = e.target.value) }),
