@@ -226,28 +226,42 @@ def main() -> int:
     # ---------------------------------------------------------- 自动评测
     section("5. 自动评测引擎")
     judge_pid = d(temp_problem, "data", "id") if temp_problem else (probs[0]["id"] if probs else None)
-    if judge_pid:
-        check("运行样例（不记入历史）", "/api/run", "POST",
-              {"problem_id": judge_pid, "language": "cpp",
-               "source_code": "#include <bits/stdc++.h>\nint main(){int n;scanf(\"%d\",&n);long long s=0,x;"
-                              "for(int i=0;i<n;i++){scanf(\"%lld\",&x);s+=x;}printf(\"%lld\\n\",s);return 0;}"},
-              role="student", timeout=120, probe=lambda p: d(p, "data", "verdict") == "Accepted")
-        check("自定义输入运行", "/api/run", "POST",
-              {"problem_id": judge_pid, "language": "cpp", "custom_input": "2\n3 4\n", "expected": "7",
-               "source_code": "#include <bits/stdc++.h>\nint main(){int n;scanf(\"%d\",&n);long long s=0,x;"
-                              "for(int i=0;i<n;i++){scanf(\"%lld\",&x);s+=x;}printf(\"%lld\\n\",s);return 0;}"},
-              role="student", timeout=120, probe=lambda p: d(p, "data", "verdict") == "Accepted")
-
+    # 审计临时题是「求 n 个整数之和」；只读模式下改用题库第 1 题（最大子段和）
+    if temp_problem:
         AC = ("#include <bits/stdc++.h>\nint main(){int n;scanf(\"%d\",&n);long long s=0,x;"
               "for(int i=0;i<n;i++){scanf(\"%lld\",&x);s+=x;}printf(\"%lld\\n\",s);return 0;}")
         WA = ("#include <bits/stdc++.h>\nint main(){int n;scanf(\"%d\",&n);long long s=0,x;"
               "for(int i=0;i<n;i++){scanf(\"%lld\",&x);s+=x;}printf(\"%lld\\n\",s+1);return 0;}")
-        TLE = ("#include <bits/stdc++.h>\nint main(){volatile long long k=0;while(true)k++;return 0;}")
-        RE = ("#include <bits/stdc++.h>\nint main(){int*p=nullptr;*p=1;return 0;}")
-        CE = "this is not c++ at all"
-        PY = "import sys\nn=int(sys.stdin.readline())\nprint(sum(map(int,sys.stdin.read().split())))"
+    else:
+        AC = ("#include <bits/stdc++.h>\nint main(){int n;scanf(\"%d\",&n);long long b=LLONG_MIN,c=0,x;"
+              "for(int i=0;i<n;i++){scanf(\"%lld\",&x);c=(i==0)?x:std::max(x,c+x);b=std::max(b,c);}"
+              "printf(\"%lld\\n\",b);return 0;}")
+        WA = ("#include <bits/stdc++.h>\nint main(){int n;scanf(\"%d\",&n);printf(\"0\\n\");return 0;}")
+    TLE = "#include <bits/stdc++.h>\nint main(){volatile long long k=0;while(true)k++;return 0;}"
+    RE = "#include <bits/stdc++.h>\nint main(){int*p=nullptr;*p=1;return 0;}"
+    CE = "this is not c++ at all"
+    PY = ("import sys\nif __name__ == \"__main__\":\n"
+          "    d = sys.stdin.read().split()\n    n = int(d[0])\n"
+          "    a = list(map(int, d[1:1+n]))\n    best = cur = a[0]\n"
+          "    for x in a[1:]:\n        cur = max(x, cur + x)\n        best = max(best, cur)\n"
+          "    print(best)\n")
 
-        res = {}
+    if judge_pid:
+        check("运行样例（不记入历史）", "/api/run", "POST",
+              {"problem_id": judge_pid, "language": "cpp", "source_code": AC},
+              role="student", timeout=120, probe=lambda p: d(p, "data", "verdict") == "Accepted")
+        check("自定义输入运行", "/api/run", "POST",
+              {"problem_id": judge_pid, "language": "cpp", "custom_input": "2\n3 4\n", "expected": "7",
+               "source_code": AC if not temp_problem else
+               ("#include <bits/stdc++.h>\nint main(){int n;scanf(\"%d\",&n);long long s=0,x;"
+                "for(int i=0;i<n;i++){scanf(\"%lld\",&x);s+=x;}printf(\"%lld\\n\",s);return 0;}")},
+              role="student", timeout=120, probe=lambda p: d(p, "data", "verdict") == "Accepted")
+
+    res = {}
+    if READONLY:
+        skip("提交评测（AC/WA/TLE/RE/CE/Python/Java）", "只读模式不写入提交记录")
+        skip("重测提交", "只读模式不修改数据")
+    elif judge_pid:
         for tag, src, lang, expect in (
             ("AC", AC, "cpp", "Accepted"),
             ("WA", WA, "cpp", "Wrong Answer"),
@@ -279,6 +293,8 @@ def main() -> int:
                   probe=lambda p: d(p, "data", "test_results") is not None)
             check("重测单条提交", f"/api/submissions/{res['AC']}/rejudge", "POST", {},
                   role="teacher", timeout=180, probe=lambda p: d(p, "data", "verdict") == "Accepted")
+
+    if judge_pid:
         check("提交列表（教师看全班）", "/api/submissions?limit=20", role="teacher",
               probe=lambda p: isinstance(p.get("data"), list))
         check("提交列表（学生只看自己）", "/api/submissions?limit=20", role="student",
