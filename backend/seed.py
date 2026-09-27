@@ -132,7 +132,7 @@ class Seeder:
         pw, salt = hash_password("123456")
         rng = self.rng
         rows = [
-            ("teacher", "teacher@ajp.edu.cn", pw, salt, "teacher", "刘生昊", None, None, "T"),
+            ("teacher", "teacher@ajp.edu.cn", pw, salt, "teacher", "张乾坤", None, None, "张"),
             ("ta", "ta@ajp.edu.cn", pw, salt, "ta", "陈思远", None, None, "TA"),
         ]
         used: set = set()

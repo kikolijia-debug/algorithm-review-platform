@@ -16,6 +16,7 @@ import * as S from './pages/student.js';
 import * as T from './pages/teacher-core.js';
 import * as TI from './pages/teacher-insight.js';
 import * as TC from './pages/teacher-classes.js';
+import * as TM from './pages/teacher-merged.js';
 
 /* --------------------------------------------------------------- 导航表 */
 
@@ -38,30 +39,17 @@ const NAV = {
       group: '教学',
       items: [
         { label: '教学看板', path: '/teacher', icon: icon.spark },
-        { label: '作业管理', path: '/teacher/assignments', icon: icon.book },
-        { label: '题库管理', path: '/problems', icon: icon.code },
-        { label: '提交与评测', path: '/teacher/submissions', icon: icon.chart },
-        { label: '班级管理', path: '/teacher/classes', icon: icon.users },
+        { label: '作业与题库', path: '/teacher/work', icon: icon.book },
+        { label: '班级与学生', path: '/teacher/students', icon: icon.users },
       ],
     },
     {
-      group: '学习分析',
+      group: '分析与治理',
       items: [
-        { label: '学习过程分析', path: '/teacher/analytics', icon: icon.chart },
-        { label: '能力与难度估计', path: '/teacher/ability', icon: icon.users },
+        { label: '学情分析', path: '/teacher/analytics', icon: icon.chart },
+        { label: '评审管理', path: '/teacher/reviews', icon: icon.shield, badge: 'openAnomalies' },
+        { label: '算法实验台', path: '/teacher/experiments', icon: icon.spark },
       ],
-    },
-    {
-      group: '互评治理',
-      items: [
-        { label: '评审过程管理', path: '/teacher/reviews', icon: icon.users },
-        { label: '异常评审检测', path: '/teacher/anomalies', icon: icon.shield, badge: 'openAnomalies' },
-        { label: '代码相似度检测', path: '/teacher/similarity', icon: icon.search },
-      ],
-    },
-    {
-      group: '算法实验',
-      items: [{ label: '算法实验台', path: '/teacher/experiments', icon: icon.spark }],
     },
   ],
 };
@@ -134,15 +122,17 @@ function topbar() {
     '/student/report': ['学习动态', '学习报告'],
     '/student/assignment': ['学习动态', '作业详情'],
     '/teacher': ['教学看板'],
+    '/teacher/work': ['教学', '作业与题库'],
+    '/teacher/students': ['教学', '班级与学生'],
     '/teacher/assignments': ['教学', '作业管理'],
     '/teacher/assignment': ['教学', '作业管理', '作业详情'],
     '/teacher/submissions': ['教学', '提交与评测'],
     '/teacher/classes': ['教学', '班级管理'],
     '/teacher/analytics': ['学习分析', '学习过程分析'],
     '/teacher/ability': ['学习分析', '能力与难度估计'],
-    '/teacher/reviews': ['互评治理', '评审过程管理'],
-    '/teacher/anomalies': ['互评治理', '异常评审检测'],
-    '/teacher/similarity': ['互评治理', '代码相似度检测'],
+    '/teacher/reviews': ['分析与治理', '评审管理'],
+    '/teacher/anomalies': ['分析与治理', '异常评审检测'],
+    '/teacher/similarity': ['分析与治理', '代码相似度检测'],
     '/teacher/experiments': ['算法实验', '算法实验台'],
   };
   const key = Object.keys(map).sort((a, b) => b.length - a.length).find((k) => p.startsWith(k));
@@ -252,7 +242,7 @@ const BACK_MAP = [
   [/^\/student\/assignment\/.+/, '/student'],
   [/^\/teacher\/assignment\/.+/, '/teacher/assignments'],
   [/^\/student\/(submissions|reviews|subjective|report)$/, '/student'],
-  [/^\/teacher\/(assignments|submissions|classes|analytics|ability|reviews|anomalies|similarity|experiments)$/, '/teacher'],
+  [/^\/teacher\/(work|students|assignments|submissions|classes|analytics|ability|reviews|anomalies|similarity|experiments)$/, '/teacher'],
 ];
 
 /** 返回目标；顶级页面返回 null（不显示返回按钮）。 */
@@ -411,13 +401,18 @@ function registerRoutes() {
 
   // 教师端
   P('/teacher', T.loadTeacherDashboard, T.renderTeacherDashboard);
+  // 合并页（主导航）：作业与题库 / 班级与学生 / 学情分析 / 评审管理
+  P('/teacher/work', TM.loadWork, TM.renderWork);
+  P('/teacher/students', TM.loadStudentsPage, TM.renderStudentsPage);
+  P('/teacher/analytics', TM.loadAnalyticsAll, TM.renderAnalyticsAll);
+  P('/teacher/reviews', TM.loadReviewsAll, TM.renderReviewsAll);
+
+  // 以下独立路由保留，旧书签与深链接不会失效
   P('/teacher/assignments', T.loadAssignments, T.renderAssignments);
   P('/teacher/assignment/:id', T.loadAssignmentDetail, T.renderAssignmentDetail);
   P('/teacher/submissions', T.loadTeacherSubmissions, T.renderTeacherSubmissions);
   P('/teacher/classes', TC.loadClasses, TC.renderClasses);
-  P('/teacher/analytics', TI.loadAnalytics, TI.renderAnalytics);
   P('/teacher/ability', TI.loadAbility, TI.renderAbility);
-  P('/teacher/reviews', TI.loadReviewAdmin, TI.renderReviewAdmin);
   P('/teacher/anomalies', TI.loadAnomalies, TI.renderAnomalies);
   P('/teacher/similarity', TI.loadSimilarity, TI.renderSimilarity);
   P('/teacher/experiments', TI.loadExperiments, TI.renderExperiments);

@@ -25,7 +25,7 @@ export async function loadAnalytics() {
   return { klass, knowledge, timeline, ability };
 }
 
-export function renderAnalytics({ klass, knowledge, timeline, ability }, container) {
+export function renderAnalytics({ klass, knowledge, timeline, ability }, container, extraTabs = []) {
   const tabsBox = h('div');
   const overview = () => {
     const ov = klass.overview;
@@ -190,6 +190,7 @@ export function renderAnalytics({ klass, knowledge, timeline, ability }, contain
   };
 
   const panes = { overview, problem: problemPane, knowledge: knowledgePane, timeline: timelinePane };
+  extraTabs.forEach((t) => (panes[t.key] = t.render));
   const show = (k) => {
     clear(tabsBox);
     const r = panes[k]();
@@ -201,6 +202,7 @@ export function renderAnalytics({ klass, knowledge, timeline, ability }, contain
       { key: 'problem', label: '题目分析' },
       { key: 'knowledge', label: '知识点掌握' },
       { key: 'timeline', label: '提交时间线' },
+      ...extraTabs.map((t) => ({ key: t.key, label: t.label })),
     ],
     { onChange: show }
   );
@@ -361,7 +363,7 @@ export async function loadReviewAdmin(ctx) {
   return { assignments: peer, selected, allocs, results, anomalies };
 }
 
-export function renderReviewAdmin({ assignments, selected, allocs, results, anomalies }, container) {
+export function renderReviewAdmin({ assignments, selected, allocs, results, anomalies }, container, extraTabs = []) {
   const current = assignments.find((a) => String(a.id) === String(selected));
   const pane = h('div');
 
@@ -422,21 +424,33 @@ export function renderReviewAdmin({ assignments, selected, allocs, results, anom
       return Object.values(m);
     }
 
+    // 常用参数只有 3 个，其余算法权重收进「高级参数」，避免一屏全是输入框
     const form = h(
       'div',
-      { class: 'grid grid--2', style: { gap: '12px' } },
-      U.field('分配算法', U.select([
-        { value: 'mcmf', label: '最小费用最大流 + 局部搜索（推荐）' },
-        { value: 'greedy', label: '贪心负载均衡（基线）' },
-        { value: 'random', label: '随机分配（基线）' },
-      ], { value: params.method, onchange: (e) => (params.method = e.target.value) })),
-      U.field('每份作业评审数 k', h('input', { class: 'input', type: 'number', min: 1, max: 6, value: params.reviews_per_submission, oninput: (e) => (params.reviews_per_submission = +e.target.value) })),
-      U.field('每人最多评审数 c', h('input', { class: 'input', type: 'number', min: 1, max: 10, value: params.max_load, oninput: (e) => (params.max_load = +e.target.value) })),
-      U.field('历史重复互评惩罚 α', h('input', { class: 'input', type: 'number', step: '0.5', value: params.prev_pair_penalty, oninput: (e) => (params.prev_pair_penalty = +e.target.value) }), { hint: '越大越倾向于避开上一轮已互相评过的人' }),
-      U.field('跨班组权重 β', h('input', { class: 'input', type: 'number', step: '0.5', value: params.cross_group_bonus, oninput: (e) => (params.cross_group_bonus = +e.target.value) }), { hint: '鼓励跨班级分配，降低熟人效应' }),
-      U.field('互为评审惩罚 ρ', h('input', { class: 'input', type: 'number', step: '0.5', value: params.reciprocity_penalty, oninput: (e) => (params.reciprocity_penalty = +e.target.value) })),
-      U.field('班级分布均衡权重 γ', h('input', { class: 'input', type: 'number', step: '0.2', value: params.variety_weight, oninput: (e) => (params.variety_weight = +e.target.value) })),
-      U.field('随机种子', h('input', { class: 'input', type: 'number', value: params.seed, oninput: (e) => (params.seed = +e.target.value) }), { hint: '同一种子结果可复现，便于实验对比' })
+      {},
+      h(
+        'div',
+        { class: 'grid grid--3', style: { gap: '12px' } },
+        U.field('分配算法', U.select([
+          { value: 'mcmf', label: '最小费用流 + 局部搜索（推荐）' },
+          { value: 'greedy', label: '贪心负载均衡' },
+          { value: 'random', label: '随机分配' },
+        ], { value: params.method, onchange: (e) => (params.method = e.target.value) })),
+        U.field('每份作业评几次 k', h('input', { class: 'input', type: 'number', min: 1, max: 6, value: params.reviews_per_submission, oninput: (e) => (params.reviews_per_submission = +e.target.value) })),
+        U.field('每人最多评几份 c', h('input', { class: 'input', type: 'number', min: 1, max: 10, value: params.max_load, oninput: (e) => (params.max_load = +e.target.value) }))
+      ),
+      h('details', { class: 'mt12' },
+        h('summary', { style: { cursor: 'pointer', fontSize: '13px', color: 'var(--brand)' } },
+          '高级参数（算法权重，一般不用改）'),
+        h(
+          'div',
+          { class: 'grid grid--2 mt12', style: { gap: '12px' } },
+          U.field('历史重复互评惩罚 α', h('input', { class: 'input', type: 'number', step: '0.5', value: params.prev_pair_penalty, oninput: (e) => (params.prev_pair_penalty = +e.target.value) }), { hint: '越大越避开上一轮互评过的人' }),
+          U.field('跨班组权重 β', h('input', { class: 'input', type: 'number', step: '0.5', value: params.cross_group_bonus, oninput: (e) => (params.cross_group_bonus = +e.target.value) }), { hint: '鼓励跨班分配，降低熟人效应' }),
+          U.field('互为评审惩罚 ρ', h('input', { class: 'input', type: 'number', step: '0.5', value: params.reciprocity_penalty, oninput: (e) => (params.reciprocity_penalty = +e.target.value) })),
+          U.field('班级分布均衡权重 γ', h('input', { class: 'input', type: 'number', step: '0.2', value: params.variety_weight, oninput: (e) => (params.variety_weight = +e.target.value) })),
+          U.field('随机种子', h('input', { class: 'input', type: 'number', value: params.seed, oninput: (e) => (params.seed = +e.target.value) }), { hint: '同一种子结果可复现' })
+        ))
     );
 
     return h(
@@ -561,6 +575,7 @@ export function renderReviewAdmin({ assignments, selected, allocs, results, anom
   };
 
   const panes = { alloc: allocPane, result: resultPane, reviewer: reviewerPane };
+  extraTabs.forEach((t) => (panes[t.key] = t.render));
   const show = (k) => {
     clear(pane);
     const node = panes[k]();
@@ -571,6 +586,7 @@ export function renderReviewAdmin({ assignments, selected, allocs, results, anom
       { key: 'alloc', label: '分配管理' },
       { key: 'result', label: '评分结果' },
       { key: 'reviewer', label: '可信度与异常' },
+      ...extraTabs.map((t) => ({ key: t.key, label: t.label, badge: t.badge })),
     ],
     { onChange: show }
   );

@@ -25,6 +25,7 @@ export function renderTeacherDashboard({ dash, klass }) {
   const assignments = dash.assignments || [];
   const active = assignments.filter((a) => !a.overdue && a.status !== 'closed');
   const needAttention = assignments.filter((a) => a.pending_reviews > 0 || a.status === 'reviewing');
+  const totalStudents = dash.students || 0;
 
   const hero = h(
     'div',
@@ -34,58 +35,36 @@ export function renderTeacherDashboard({ dash, klass }) {
       {},
       h('div', { class: 'hero__title' }, '教学看板'),
       h('p', { class: 'hero__sub' },
-        `${dash.course.name} · ${dash.students} 名学生 · ${st.problems} 道题目 · `
-        + `累计 ${st.submissions} 次自动评测，整体通过率 ${Math.round((st.ac_rate || 0) * 100)}%`),
+        `${dash.course.name} · ${dash.students} 名学生 · 整体通过率 ${Math.round((st.ac_rate || 0) * 100)}%`),
       h('div', { class: 'row mt16' },
-        h('a', { class: 'btn btn--primary btn--sm', href: '#/teacher/assignments' }, '布置作业'),
-        h('a', { class: 'btn btn--dark btn--sm', href: '#/teacher/analytics' }, '查看学情分析'),
-        st.open_anomalies ? h('a', { class: 'btn btn--dark btn--sm', href: '#/teacher/anomalies' }, `复核异常评审 (${st.open_anomalies})`) : null)
+        h('a', { class: 'btn btn--primary btn--sm', href: '#/teacher/work' }, '布置作业'),
+        h('a', { class: 'btn btn--dark btn--sm', href: '#/teacher/reviews' }, '处理互评'),
+        h('a', { class: 'btn btn--dark btn--sm', href: '#/teacher/analytics' }, '看学情'))
     ),
     h(
       'div',
       { class: 'hero__tiles' },
-      h('div', { class: 'hero-tile' }, h('b', {}, dash.students), h('span', {}, '学生成员')),
+      h('div', { class: 'hero-tile' }, h('b', {}, totalStudents), h('span', {}, '学生')),
       h('div', { class: 'hero-tile' }, h('b', {}, active.length), h('span', {}, '进行中作业')),
       h('div', { class: 'hero-tile' }, h('b', {}, st.pending_reviews), h('span', {}, '待完成互评')),
       h('div', { class: 'hero-tile' }, h('b', {}, st.open_anomalies), h('span', {}, '待处理异常'))
     )
   );
 
-  const progressCard = U.card(
-    U.cardHead('作业进度', { sub: `${assignments.length} 次作业`, actions: h('a', { class: 'btn btn--ghost btn--sm', href: '#/teacher/assignments' }, '全部') }),
-    assignments.length
-      ? h('div', { class: 'col' }, ...assignments.slice(0, 6).map((a) => {
-          const total = a.submitted_users + a.subjective_users;
-          const done = Math.max(a.submitted_users, a.subjective_users);
-          return h('div', { class: 'list-row' },
-            h('div', { class: 'list-row__main' },
-              h('div', { class: 'list-row__title' }, a.title,
-                U.badge(ASSIGNMENT_STATUS[a.status] || a.status, a.status === 'reviewing' ? 'blue' : a.overdue ? 'neutral' : 'brand'),
-                a.peer_review ? U.badge('互评', 'warn') : null),
-              h('div', { class: 'list-row__meta' },
-                h('span', {}, `${done}/${dash.students} 人已交`),
-                h('span', {}, a.due_at ? '截止 ' + U.fmtDate(a.due_at, { withTime: false }) : '未设截止'),
-                a.pending_reviews ? h('span', { style: { color: 'var(--amber)' } }, `待评 ${a.pending_reviews}`) : null),
-              U.progress(done / Math.max(1, dash.students))),
-            h('div', { class: 'list-row__side' },
-              h('a', { class: 'btn btn--soft btn--sm', href: `#/teacher/assignment/${a.id}` }, '详情')));
-        }))
-      : U.empty('还没有作业', '点击右上角「布置作业」创建第一次作业。')
-  );
-
+  // 待办放最前：教师打开页面第一眼就知道要做什么
   const attention = U.card(
-    U.cardHead('需要你关注', { sub: '截止、互评与异常' }),
+    U.cardHead('需要你处理', { sub: '按优先级排列' }),
     h('div', { class: 'col', style: { gap: '10px' } },
-      st.pending_reviews
-        ? U.alertRow('medium', `${st.pending_reviews} 份互评尚未完成`, '可在「评审过程管理」中查看进度。',
-            h('a', { class: 'btn btn--soft btn--xs', href: '#/teacher/reviews' }, '去处理'))
-        : null,
       st.open_anomalies
-        ? U.alertRow('high', `${st.open_anomalies} 条异常评审待复核`, '包含长期偏高/偏低、单次偏离与固定互评关系。',
-            h('a', { class: 'btn btn--soft btn--xs', href: '#/teacher/anomalies' }, '去复核'))
+        ? U.alertRow('high', `${st.open_anomalies} 条异常评审待复核`, '长期偏高/偏低、单次偏离或固定互评关系。',
+            h('a', { class: 'btn btn--soft btn--xs', href: '#/teacher/reviews' }, '去复核'))
+        : null,
+      st.pending_reviews
+        ? U.alertRow('medium', `${st.pending_reviews} 份互评尚未完成`, '可在「评审管理」查看进度并催办。',
+            h('a', { class: 'btn btn--soft btn--xs', href: '#/teacher/reviews' }, '去查看'))
         : null,
       needAttention.length
-        ? U.alertRow('low', `${needAttention.length} 次作业处于互评或未截止状态`, '截止后结果自动公布。')
+        ? U.alertRow('low', `${needAttention.length} 次作业处于互评或未截止状态`, '截止后结果自动公布给学生。')
         : null,
       (!st.pending_reviews && !st.open_anomalies)
         ? U.empty('暂无需要处理的事项', '互评已完成，未发现高风险评审。')
@@ -93,40 +72,51 @@ export function renderTeacherDashboard({ dash, klass }) {
     )
   );
 
-  const recent = U.card(
-    U.cardHead('最近提交动态'),
-    (dash.recent_submissions || []).length
-      ? h('div', {}, ...dash.recent_submissions.slice(0, 8).map((s) =>
-          h('div', { class: 'mini-row', style: { cursor: 'pointer' }, onclick: () => router.navigate('/student/submissions/' + s.id) },
-            U.verdictBadge(s.verdict),
-            h('span', {}, s.name),
-            h('span', { class: 'muted small grow' }, s.title),
-            h('span', { class: 'mini-row__time' }, U.timeAgo(s.submitted_at)))))
-      : U.empty('暂无提交', '')
+  const progressCard = U.card(
+    U.cardHead('作业进度', {
+      sub: `${assignments.length} 次作业`,
+      actions: h('a', { class: 'btn btn--ghost btn--sm', href: '#/teacher/work' }, '全部'),
+    }),
+    assignments.length
+      ? h('div', { class: 'col' }, ...assignments.slice(0, 5).map((a) => {
+          const done = Math.max(a.submitted_users, a.subjective_users);
+          return h('div', { class: 'list-row' },
+            h('div', { class: 'list-row__main' },
+              h('div', { class: 'list-row__title' }, a.title,
+                U.badge(ASSIGNMENT_STATUS[a.status] || a.status, a.status === 'reviewing' ? 'blue' : a.overdue ? 'neutral' : 'brand'),
+                a.peer_review ? U.badge('互评', 'warn') : null),
+              h('div', { class: 'list-row__meta' },
+                h('span', {}, `${done}/${totalStudents} 人已交`),
+                h('span', {}, a.due_at ? '截止 ' + U.fmtDate(a.due_at, { withTime: false }) : '未设截止'),
+                a.pending_reviews ? h('span', { style: { color: 'var(--amber)' } }, `待评 ${a.pending_reviews}`) : null),
+              U.progress(done / Math.max(1, totalStudents))),
+            h('div', { class: 'list-row__side' },
+              h('a', { class: 'btn btn--soft btn--sm', href: `#/teacher/assignment/${a.id}` }, '详情')));
+        }))
+      : U.empty('还没有作业', '点击右上角「布置作业」创建第一次作业。')
   );
 
-  const quiz = klass
-    ? U.card(
-        U.cardHead('班级学情速览', { sub: '按题目通过率排序' }),
-        h('div', { class: 'score-list' }, ...(klass.problems || []).slice(0, 8).map((p) =>
-          h('div', { class: 'score-item' },
-            h('span', { class: 'score-item__name', title: p.title }, p.title),
-            U.meter(Math.round(p.pass_rate * 100), { tone: p.pass_rate > 0.7 ? 'ok' : p.pass_rate > 0.4 ? 'brand' : 'warn' }),
-            h('span', { class: 'score-item__val' }, Math.round(p.pass_rate * 100) + '%'))))
-      )
-    : null;
-
   const classCard = U.card(
-    U.cardHead('教学班', { sub: `${(dash.class_stats || []).length} 个班级` }),
+    U.cardHead('班级概览', {
+      sub: `${(dash.class_stats || []).length} 个班级 · ${totalStudents} 人`,
+      actions: h('a', { class: 'btn btn--ghost btn--sm', href: '#/teacher/students' }, '管理'),
+    }),
     (dash.class_stats || []).length
       ? h('div', { class: 'col', style: { gap: '10px' } }, ...dash.class_stats.map((c) =>
           h('div', { class: 'list-row' },
-            h('span', {}, U.icon.users),
             h('div', { class: 'list-row__main' },
               h('div', { class: 'list-row__title' }, c.class_name || '未分班'),
-              h('div', { class: 'list-row__meta' }, h('span', {}, `${c.n} 名学生`))),
-            U.badge('邀请码 ' + (dash.course.invite_code || '—'), 'brand'))))
-      : U.empty('暂无班级', '')
+              h('div', { class: 'list-row__meta' }, h('span', {}, `${c.n} 名学生`))))))
+      : U.empty('暂无班级', ''),
+    klass && (klass.problems || []).length
+      ? h('div', { class: 'mt16' },
+          h('h4', { class: 'small muted', style: { marginBottom: '8px' } }, '题目通过率'),
+          h('div', { class: 'score-list' }, ...(klass.problems || []).slice(0, 6).map((p) =>
+            h('div', { class: 'score-item' },
+              h('span', { class: 'score-item__name', title: p.title }, p.title),
+              U.meter(Math.round(p.pass_rate * 100), { tone: p.pass_rate > 0.7 ? 'ok' : p.pass_rate > 0.4 ? 'brand' : 'warn' }),
+              h('span', { class: 'score-item__val' }, Math.round(p.pass_rate * 100) + '%')))))
+      : null
   );
 
   const noticeBox = U.card(
@@ -143,8 +133,8 @@ export function renderTeacherDashboard({ dash, klass }) {
     { class: 'col', style: { gap: '16px' } },
     hero,
     h('div', { class: 'dash-grid' },
-      h('div', { class: 'col', style: { gap: '16px' } }, progressCard, recent),
-      h('div', { class: 'col', style: { gap: '16px' } }, attention, classCard, quiz, noticeBox))
+      h('div', { class: 'col', style: { gap: '16px' } }, attention, progressCard),
+      h('div', { class: 'col', style: { gap: '16px' } }, classCard, noticeBox))
   );
 }
 
