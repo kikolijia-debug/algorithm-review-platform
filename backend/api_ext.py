@@ -803,9 +803,14 @@ def api_dashboard_teacher(ctx):
         a["subjective_users"] = db.q1(
             "SELECT COUNT(DISTINCT user_id) c FROM subjective_submissions WHERE assignment_id=?",
             (a["id"],))["c"]
+        # 只有「教师已确认发布」的互评分配才算待完成，避免和学生的实际待办对不上
+        confirmed = (a["allocation_status"] if "allocation_status" in a.keys() else "confirmed") \
+            != "draft"
         a["pending_reviews"] = db.q1(
             "SELECT COUNT(*) c FROM allocations WHERE assignment_id=? AND status='pending'",
-            (a["id"],))["c"]
+            (a["id"],))["c"] if confirmed else 0
+        a["need_confirm"] = not confirmed and db.q1(
+            "SELECT COUNT(*) c FROM allocations WHERE assignment_id=?", (a["id"],))["c"] > 0
         due = parse_dt(a["due_at"])
         a["overdue"] = bool(due and due < now)
     students = db.q1(
