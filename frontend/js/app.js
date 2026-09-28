@@ -215,7 +215,11 @@ function openUserMenu(e) {
     },
     h('div', { class: 'small muted', style: { padding: '6px 10px' } },
       (state.user.email || state.user.username || '') + ' · ' + (state.user.class_name || '教师')),
-    h('button', { class: 'btn btn--ghost btn--block', style: { marginTop: '6px' }, onclick: () => { menu.remove(); router.navigate('/student'); } }, '我的工作台'),
+    h('button', {
+      class: 'btn btn--ghost btn--block',
+      style: { marginTop: '6px' },
+      onclick: () => { menu.remove(); router.navigate(isTeacher() ? '/teacher' : '/student'); },
+    }, isTeacher() ? '教学看板' : '我的工作台'),
     h('button', { class: 'btn btn--ghost btn--block', style: { marginTop: '6px' }, onclick: () => { menu.remove(); router.navigate('/'); } }, '返回首页'),
     h('button', {
       class: 'btn btn--danger btn--block',
@@ -387,6 +391,22 @@ function guard(ctx) {
   if (state.token && isPublic && (ctx.path === '/login' || ctx.path === '/register')) {
     router.navigate(isTeacher() ? '/teacher' : '/student');
     return false;
+  }
+  // 角色隔离：教师进不了学生端页面，学生也进不了教师端页面
+  if (state.token && !isPublic) {
+    const teacher = isTeacher();
+    const studentOnly = ctx.path === '/student' || ctx.path.startsWith('/student/');
+    const teacherOnly = ctx.path.startsWith('/teacher');
+    if (teacher && studentOnly) {
+      toast('教师账号没有「学习动态」，已返回教学看板', 'warn', 4000);
+      router.navigate('/teacher');
+      return false;
+    }
+    if (!teacher && teacherOnly) {
+      toast('该页面仅教师 / 助教可用', 'warn', 4000);
+      router.navigate('/student');
+      return false;
+    }
   }
   return true;
 }

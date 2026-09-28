@@ -146,6 +146,11 @@ def main() -> int:
     check("未登录访问被拒", "/api/courses", role=None, want=401)
     check("学生访问教师接口被拒", "/api/anomalies/handle-batch", "POST", {"ids": []},
           role="student", want=403)
+    # 角色隔离：学生拿不到教师端任何聚合数据
+    for path in ("/api/dashboard/teacher", "/api/analytics/class", "/api/anomalies",
+                 "/api/users?role=student", "/api/similarity", "/api/experiments",
+                 "/api/submissions/stats/overview"):
+        check(f"学生访问 {path} 被拒", path, role="student", want=403)
     check("会话信息", "/api/auth/me", role="teacher",
           probe=lambda p: d(p, "data", "user", "role") == "teacher")
     check("退出登录", "/api/auth/logout", "POST", {}, role="ta", probe=lambda p: p.get("ok"))

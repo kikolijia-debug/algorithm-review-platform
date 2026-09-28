@@ -412,7 +412,7 @@ def api_course_join(ctx):
                "class_name": cls["name"] if cls else None})
 
 
-@route("GET", "/api/users")
+@route("GET", "/api/users", "teacher")
 def api_users(ctx):
     role = ctx["query"].get("role")
     cid = active_course_id(ctx, ctx["query"].get("course_id"))
@@ -526,7 +526,7 @@ def api_users_bulk(ctx):
                "skipped": skipped})
 
 
-@route("GET", "/api/users/{id}")
+@route("GET", "/api/users/{id}", "teacher")
 def api_user(ctx):
     u = db.q1("SELECT * FROM users WHERE id=?", (ctx["params"]["id"],))
     return ok(public_user(dict(u))) if u else err(404, "用户不存在")
@@ -1065,7 +1065,7 @@ def api_rejudge_assignment(ctx):
     return ok({"rejudged": len(done), "changes": [d for d in done if d["before"] != d["after"]]})
 
 
-@route("GET", "/api/submissions/stats/overview")
+@route("GET", "/api/submissions/stats/overview", "teacher")
 def api_submission_stats(ctx):
     q = ctx["query"]
     where, args = "WHERE 1=1", []

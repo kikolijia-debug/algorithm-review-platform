@@ -182,7 +182,7 @@ def api_assignment_progress(ctx):
     })
 
 
-@route("GET", "/api/analytics/class")
+@route("GET", "/api/analytics/class", "teacher")
 def api_analytics_class(ctx):
     course_id = _first_course(ctx)
     assignment_id = ctx["query"].get("assignment_id")
@@ -316,7 +316,7 @@ def api_analytics_class(ctx):
     })
 
 
-@route("GET", "/api/analytics/problem/{id}")
+@route("GET", "/api/analytics/problem/{id}", "teacher")
 def api_analytics_problem(ctx):
     pid = int(ctx["params"]["id"])
     p = db.q1("SELECT * FROM problems WHERE id=?", (pid,))
@@ -508,6 +508,10 @@ def api_knowledge(ctx):
     mastery = {t: round(100 * sum(v) / len(v), 1) for t, v in topic_acc.items()}
     per_user = {uid: {t: round(100 * sum(v) / len(v), 1) for t, v in topics.items()}
                 for uid, topics in user_topic.items()}
+    # 学生只看得到自己的逐人数据，班级平均可以看（用于对照）
+    if not is_teacher(ctx["user"]):
+        me = ctx["user"]["id"]
+        per_user = {k: v for k, v in per_user.items() if int(k) == me}
     rows = [{"user_id": r["user_id"], "problem_id": r["problem_id"],
              "score": min(1.0, max(0.0, r["sc"]))} for r in results]
     irt = AB.irt_2pl(rows) if len(rows) >= 20 else {"ability_100": {}, "b": {}, "a": {}}
@@ -558,6 +562,9 @@ def api_ability(ctx):
               "a": irt["a"].get(p["id"]),
               "difficulty": irt.get("difficulty_100", {}).get(p["id"]),
               "elo": elo["difficulty"].get(p["id"])} for p in problems]
+    if not is_teacher(ctx["user"]):
+        me = ctx["user"]["id"]
+        out = [s for s in out if s["user_id"] == me]
     return ok({
         "students": out,
         "problems": sorted(probs, key=lambda x: (x["b"] if x["b"] is not None else 0)),
@@ -565,7 +572,7 @@ def api_ability(ctx):
     })
 
 
-@route("GET", "/api/analytics/timeline")
+@route("GET", "/api/analytics/timeline", "teacher")
 def api_timeline(ctx):
     course_id = _first_course(ctx)
     rows = uid_rows(
@@ -584,7 +591,7 @@ def api_timeline(ctx):
 # ---------------------------------------------------------------------------
 
 
-@route("GET", "/api/anomalies")
+@route("GET", "/api/anomalies", "teacher")
 def api_anomalies(ctx):
     q = ctx["query"]
     sql = ("SELECT an.*, u.name AS reviewer_name, au.name AS author_name, u.class_name "
@@ -684,7 +691,7 @@ def api_anomaly_batch(ctx):
 # ---------------------------------------------------------------------------
 
 
-@route("GET", "/api/similarity")
+@route("GET", "/api/similarity", "teacher")
 def api_similarity(ctx):
     q = ctx["query"]
     sql = ("SELECT s.id,s.user_id,s.problem_id,s.source_code,s.language,u.name "
@@ -716,7 +723,7 @@ def api_similarity(ctx):
     return ok(res)
 
 
-@route("GET", "/api/experiments")
+@route("GET", "/api/experiments", "teacher")
 def api_experiments(ctx):
     rows = uid_rows(
         "SELECT id,name,params,result,elapsed_ms,created_at FROM experiments ORDER BY id DESC LIMIT 40")
@@ -784,7 +791,7 @@ def api_notice_create(ctx):
     return ok({"id": nid})
 
 
-@route("GET", "/api/dashboard/teacher")
+@route("GET", "/api/dashboard/teacher", "teacher")
 def api_dashboard_teacher(ctx):
     cid0 = _first_course(ctx)
     course = db.q1("SELECT * FROM courses WHERE id=?", (cid0,)) if cid0 else None
