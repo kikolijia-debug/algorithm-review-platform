@@ -26,86 +26,42 @@ export async function loadTeacherDashboard() {
  */
 export function renderTeacherDashboard({ dash, chapters }) {
   const course = (dash && dash.course) || {};
+  const st = (dash && dash.stats) || {};
   const nChapters = (chapters || []).length;
-  const nProblems = (chapters || []).reduce((a, c) => a + (c.problem_count || 0), 0);
+  const pendingAlloc = (dash && dash.assignments || []).filter((a) => a.need_confirm).length;
+  // 顶栏徽章与这里用同一个口径（refreshBadges 已经取过一次）
+  const anomalies = state.openAnomalies || st.open_anomalies || 0;
 
+  // 只保留「图标 + 名称 + 一行提示」，点击即进入对应工作台
   const entries = [
+    { title: '作业与题库', icon: 'book', hint: '布置作业 · 按章节出题', href: '#/teacher/work' },
+    { title: '班级与学生', icon: 'users', hint: '班级概览 · 成员管理', href: '#/teacher/students' },
+    { title: '学情分析', icon: 'chart', hint: '通过率 · 成绩 · 知识点', href: '#/teacher/analytics' },
     {
-      title: '作业与题库',
-      desc: '布置作业、配置评分规则与截止时间；维护编程题、算法分析题、证明题与开放性问答题，按课程章节组织题库。',
-      points: ['四类题型与测试数据', '按章节选题', '课件与讲义'],
-      href: '#/teacher/work',
-      cta: '进入作业与题库',
-      meta: `${nChapters} 个章节 · ${nProblems} 道题目`,
+      title: '评审管理', icon: 'shield', hint: '分配确认 · 评分复核', href: '#/teacher/reviews',
+      badge: anomalies, extra: pendingAlloc,
     },
-    {
-      title: '班级与学生',
-      desc: '建班、改名、删除与成员调整；查看班级概览（人数、通过率、平均分）与学生提交记录。',
-      points: ['班级增删改', '成员与未分班学生', '提交记录'],
-      href: '#/teacher/students',
-      cta: '进入班级与学生',
-      meta: '班级概览与成员管理统一在这里',
-    },
-    {
-      title: '学情分析',
-      desc: '题目通过率、成绩分布、提交次数、常见错误、题目难度与知识点掌握，以及学生能力估计。',
-      points: ['学习过程与课程分析', '能力与难度（IRT / ELO）', '薄弱知识点'],
-      href: '#/teacher/analytics',
-      cta: '进入学情分析',
-      meta: '作业完成情况请在「作业与题库」查看',
-    },
-    {
-      title: '评审管理',
-      desc: '查看互评分配与评分结果，复核异常或疑似不公平评分，必要时人工修正；同时提供代码相似度检测。',
-      points: ['分配与评分聚合', '异常检测与人工修正', '代码相似度'],
-      href: '#/teacher/reviews',
-      cta: '进入评审管理',
-      meta: 'Peer Review 全流程',
-      badge: (dash && dash.stats && dash.stats.open_anomalies) || 0,
-    },
-    {
-      title: '算法实验台',
-      desc: '对分配算法、评分聚合方案、异常检测方法做对照实验，观察复杂度曲线与稳定性、公平性指标。',
-      points: ['方法对照实验', '复杂度运行曲线', '指标对比'],
-      href: '#/teacher/experiments',
-      cta: '进入算法实验台',
-      meta: '大作业的实验验证部分',
-    },
-    {
-      title: '课程资源',
-      desc: '按章节浏览授课课件与讲义，支持上传维护；题目与课件使用同一套章节结构。',
-      points: ['章节化课件库', '在线预览 / 下载', '与题库联动'],
-      href: '#/materials',
-      cta: '进入课程资源',
-      meta: `${nChapters} 个章节`,
-    },
+    { title: '算法实验台', icon: 'spark', hint: '方法对比 · 复杂度实测', href: '#/teacher/experiments' },
+    { title: '课程资源', icon: 'doc', hint: `${nChapters} 个章节课件`, href: '#/materials' },
   ];
 
-  const hero = h(
+  return h(
     'div',
-    { class: 'hero' },
-    h('div', {},
-      h('div', { class: 'hero__title' }, '教学看板'),
-      h('p', { class: 'hero__sub' },
-        (course.name ? course.name + ' · ' : '') + '选择下面任意一个入口开始工作'))
+    { class: 'launch' },
+    h('div', { class: 'launch__head' },
+      h('div', { class: 'launch__title' }, '教学看板'),
+      h('div', { class: 'launch__sub' }, (course.name || '算法设计与分析') + ' · 选择下面任意一个入口')),
+    h('div', { class: 'launch__grid' },
+      ...entries.map((e) =>
+        h('a', { class: 'launch__item', href: e.href, title: e.hint },
+          h('span', { class: 'launch__icon', html: U.icon[e.icon] }),
+          h('span', { class: 'launch__name' }, e.title),
+          h('span', { class: 'launch__hint' }, e.hint),
+          (e.badge || e.extra)
+            ? h('span', { class: 'launch__dot', title: '有待处理事项' },
+                (e.badge || 0) + (e.extra || 0) > 99 ? '99+' : String((e.badge || 0) + (e.extra || 0)))
+            : null)))
   );
-
-  const grid = h('div', { class: 'entry-grid' },
-    ...entries.map((e) =>
-      h('a', { class: 'entry-card', href: e.href },
-        h('div', { class: 'entry-card__top' },
-          h('div', { class: 'entry-card__title' }, e.title),
-          e.badge ? U.badge('待处理 ' + e.badge, 'warn') : null),
-        h('p', { class: 'entry-card__desc' }, e.desc),
-        h('div', { class: 'entry-card__points' },
-          ...(e.points || []).map((p) => h('span', { class: 'chip' }, p))),
-        h('div', { class: 'entry-card__foot' },
-          h('span', { class: 'small muted' }, e.meta || ''),
-          h('span', { class: 'entry-card__cta' }, e.cta, h('span', { html: U.icon.arrow }))))
-    )
-  );
-
-  return h('div', { class: 'col', style: { gap: '16px' } }, hero, grid);
 }
 
 /* ======================================================== 作业管理 */
@@ -153,7 +109,7 @@ export function renderAssignments({ assignments, problems, courses, chapters }) 
             title: '作业', width: '26%',
             render: (a) => h('div', {},
               h('b', {}, a.title),
-              h('div', { class: 'small muted' }, (a.description || '').slice(0, 46))),
+              h('div', { class: 'small muted wrap-any' }, a.description || '')),
           },
           {
             title: '类型', width: '96px',
@@ -175,11 +131,15 @@ export function renderAssignments({ assignments, problems, courses, chapters }) 
           {
             title: '互评进度', width: '110px',
             render: (a) => (a.peer_review
-              ? h('div', { class: 'small' },
-                  h('div', {}, `已完成 ${a.review_done || 0}/${a.review_total || 0}`),
-                  a.pending_reviews
-                    ? h('div', { style: { color: 'var(--amber)' } }, `待评 ${a.pending_reviews}`)
-                    : h('div', { class: 'muted' }, '已全部完成'))
+              ? (a.need_confirm
+                  ? h('div', { class: 'small' },
+                      h('div', { style: { color: 'var(--amber)', fontWeight: '600' } }, '待确认发布'),
+                      h('div', { class: 'muted' }, `已分配 ${a.review_total || 0} 条`))
+                  : h('div', { class: 'small' },
+                      h('div', {}, `已完成 ${a.review_done || 0}/${a.review_total || 0}`),
+                      a.pending_reviews
+                        ? h('div', { style: { color: 'var(--amber)' } }, `待评 ${a.pending_reviews}`)
+                        : h('div', { class: 'muted' }, '已全部完成')))
               : h('span', { class: 'muted' }, '—')),
           },
           { title: '截止', width: '140px', render: (a) => (a.due_at ? U.fmtDate(a.due_at, { withTime: false }) : '未设') },
@@ -363,17 +323,18 @@ function editAssignment(a, problems, onSaved, chapters) {
 
 export async function loadAssignmentDetail(ctx) {
   const id = ctx.params.id;
-  const a = await api.get('/api/assignments/' + id);
-  const [subs, allocs, results] = await Promise.all([
-    api.get('/api/submissions', { assignment_id: id, limit: 500 }),
+  const [a, progress] = await Promise.all([
+    api.get('/api/assignments/' + id),
+    api.get(`/api/assignments/${id}/progress`).catch(() => null),
+  ]);
+  const [allocs, results] = await Promise.all([
     a.peer_review ? api.get(`/api/assignments/${id}/allocations`).catch(() => null) : null,
     a.peer_review ? api.get(`/api/assignments/${id}/review-results`).catch(() => null) : null,
   ]);
-  return { a, subs, allocs, results };
+  return { a, progress, allocs, results };
 }
 
-export function renderAssignmentDetail({ a, subs, allocs, results }) {
-  const progProblems = a.problems.filter((p) => p.type === 'programming');
+export function renderAssignmentDetail({ a, progress, allocs, results }) {
   const subjProblems = a.problems.filter((p) => p.type !== 'programming');
   return h(
     'div',
@@ -397,73 +358,38 @@ export function renderAssignmentDetail({ a, subs, allocs, results }) {
             } catch (e) { fail(e.message); }
           },
         }),
-        h('a', { class: 'btn btn--ghost btn--sm', href: '#/teacher/assignments' }, '返回列表'),
       ],
     }),
-    h('div', { class: 'stat-row mb16' },
-      U.stat(a.problems.length, '题目数'),
-      U.stat(subs.length, '提交总数', { tone: 'blue' }),
-      U.stat(new Set(subs.map((s) => s.user_id)).size, '参与人数', { tone: 'ok' }),
-      U.stat(a.due_at ? U.fmtDate(a.due_at, { withTime: false }) : '未设', '截止日期', { tone: 'warn' }),
-      allocs ? U.stat(`${allocs.stats.done}/${allocs.stats.total}`, '互评完成', { tone: 'brand' }) : null),
-    h('div', { class: 'grid grid--2 mb16' },
-      ...a.problems.map((p) => {
-        const isProg = p.type === 'programming';
-        const mine = subs.filter((s) => s.problem_id === p.id);
-        const pass = mine.filter((s) => s.verdict === 'Accepted').length;
-        return U.card(
-          U.cardHead(p.title, {
-            sub: PROBLEM_TYPE[p.type] || p.type,
-            actions: [
-              U.badge(isProg ? '编程题' : '主观题', isProg ? 'brand' : 'blue'),
-              h('button', { class: 'btn btn--plain btn--xs', onclick: () => router.navigate('/problem/' + p.id) }, '查看'),
-            ],
-          }),
-          isProg
-            ? h('div', {},
-                h('div', { class: 'stat-row', style: { gridTemplateColumns: 'repeat(3,1fr)' } },
-                  U.stat(`${p.ac_count}/${p.n_submit}`, '通过人数', { tone: 'ok' }),
-                  U.stat(mine.length, '提交次数', { tone: 'blue' }),
-                  U.stat(p.hidden_count + ' + 样例', '测试点', { tone: 'brand' })),
-                h('div', { class: 'mt12' }, U.progress(p.ac_count / Math.max(1, a.submitted_users || 1))))
-            : h('div', { class: 'stat-row', style: { gridTemplateColumns: 'repeat(2,1fr)' } },
-                U.stat(p.n_subjective || 0, '已提交人数', { tone: 'blue' }),
-                U.stat((p.rubric || []).filter((r) => r.key).length || 4, '评分维度', { tone: 'brand' }))
-        );
-      })),
-    progProblems.length
-      ? U.card(
-          U.cardHead('提交记录', { sub: `${subs.length} 条（点击查看逐测试点与源码）` }),
-          U.table(
-            [
-              { title: '学生', render: (s) => h('div', {}, h('b', {}, s.user_name), h('div', { class: 'small muted' }, s.class_name || '')) },
-              { title: '题目', render: (s) => s.problem_title },
-              { title: '判定', width: '110px', render: (s) => U.verdictBadge(s.verdict) },
-              { title: '得分', width: '80px', class: 'num', render: (s) => s.score },
-              { title: '耗时', width: '100px', class: 'num', render: (s) => U.fmtTime(s.time_ms) },
-              { title: '内存', width: '100px', class: 'num', render: (s) => U.fmtMem(s.memory_kb) },
-              { title: '语言', width: '80px', render: (s) => U.badge(s.language, 'neutral') },
-              { title: '时间', width: '140px', render: (s) => U.fmtDate(s.submitted_at) },
-            ],
-            subs.slice(0, 200),
-            { dense: true, empty: '暂无提交', onRow: (s) => openSubmissionDrawer(s.id) }
-          )
-        )
+    a.peer_review && a.allocation_status === 'draft'
+      ? U.alertRow('high', '本轮互评分配待你确认',
+          '分配结果已生成但尚未发布，学生此刻看不到评审任务。确认没问题后请到「评审管理 → 分配管理」点击「确认并发布」；'
+          + '需要换人也可以在那里逐个调整。',
+          h('a', { class: 'btn btn--soft btn--xs', href: `#/teacher/reviews?assignment_id=${a.id}` }, '去确认'))
       : null,
+    progress
+      ? studentProgressBlock(a, progress, subjProblems)
+      : U.empty('暂无完成情况', '该作业还没有学生数据。'),
     results && results.length
       ? h('div', { class: 'mt16' }, ...results.map((r) =>
           U.card(
             U.cardHead(r.problem_title + ' · 互评结果', {
-              sub: `共 ${r.rows.length} 份提交`,
+              sub: `共 ${r.rows.length} 份提交 · 点「评审明细」可看每位评审者给的分与文字意见`,
               actions: h('a', { class: 'btn btn--ghost btn--sm', href: '#/teacher/reviews' }, '评审过程管理'),
             }),
             U.table(
               [
                 { title: '学生', render: (x) => h('div', {}, h('b', {}, x.name), h('div', { class: 'small muted' }, x.student_no || '')) },
                 { title: '最终分', width: '90px', class: 'num', render: (x) => h('b', { style: { color: 'var(--brand)' } }, x.score) },
-                { title: '原始评分', render: (x) => h('div', { class: 'small mono' }, x.raw.join(' / ')) },
+                { title: '各评审给分', render: (x) => h('div', { class: 'small mono' }, (x.raw || []).map((v) => v.toFixed(0)).join(' / ') || '—') },
                 { title: '极差', width: '80px', class: 'num', render: (x) => x.spread },
-                { title: '评审数', width: '80px', class: 'num', render: (x) => x.n_reviews },
+                { title: '评审人数', width: '90px', class: 'num', render: (x) => x.n_reviews },
+                {
+                  title: '', width: '96px',
+                  render: (x) => h('button', {
+                    class: 'btn btn--plain btn--xs',
+                    onclick: () => openReviewDetail(x, r.problem_title),
+                  }, '评审明细'),
+                },
               ],
               r.rows,
               { dense: true }
@@ -480,6 +406,208 @@ export function renderAssignmentDetail({ a, subs, allocs, results }) {
           )))
       : null
   );
+}
+
+/**
+ * 单个作业里的「全班完成情况」：一行一位学生，一列一道题。
+ * 点某一行的「查看具体提交」可以看到这名学生每道题的提交、判定、得分与源码。
+ */
+function studentProgressBlock(a, progress, subjProblems) {
+  const problems = progress.problems || [];
+  const st = progress.stats || {};
+  let onlyMissing = false;
+  const box = h('div');
+
+  const paint = () => {
+    clear(box);
+    const rows = (progress.students || []).filter(
+      (r) => !onlyMissing || r.submitted_problems < problems.length);
+    box.appendChild(
+      U.card(
+        U.cardHead('全班完成情况', {
+          sub: `满分 ${progress.full_score} 分 · 每道题满分 100 分 · 得分取该生每题的最高分`,
+          actions: h('label', { class: 'switch switch--sm' },
+            h('input', {
+              type: 'checkbox', checked: onlyMissing,
+              onchange: (e) => { onlyMissing = e.target.checked; paint(); },
+            }),
+            h('span', { class: 'switch__track' }),
+            h('span', { class: 'small' }, '只看未交齐')),
+        }),
+        h('div', { class: 'stat-row mb16' },
+          U.stat(st.students || 0, '学生人数'),
+          U.stat(st.submitted_all || 0, '全部题目已交', { tone: 'ok' }),
+          U.stat((st.students || 0) - (st.submitted_all || 0), '存在缺交', {
+            tone: (st.students || 0) - (st.submitted_all || 0) ? 'warn' : 'ok',
+          }),
+          U.stat(st.avg_score == null ? '—' : st.avg_score, '平均得分', { tone: 'brand' }),
+          U.stat(progress.full_score, '满分', { tone: 'blue' })),
+        U.table(
+          [
+            { title: '#', width: '46px', render: (r) => r.rank },
+            {
+              title: '学生',
+              render: (r) => h('div', {},
+                h('b', {}, r.name),
+                h('div', { class: 'small muted' }, [r.class_name, r.student_no].filter(Boolean).join(' · '))),
+            },
+            {
+              title: '完成情况', width: '190px',
+              render: (r) => h('div', {},
+                U.progress(r.submitted_problems / Math.max(1, problems.length), {
+                  tone: r.submitted_problems === problems.length ? 'ok' : 'warn',
+                }),
+                h('span', { class: 'small muted' }, `${r.submitted_problems}/${problems.length} 题已交`)),
+            },
+            {
+              title: '通过题数', width: '100px', class: 'num',
+              render: (r) => h('span', { class: r.solved_problems ? '' : 'muted' },
+                `${r.solved_problems}/${problems.length}`),
+            },
+            {
+              title: '得分', width: '110px', class: 'num',
+              render: (r) => h('div', {},
+                h('b', { style: { color: 'var(--brand)' } }, r.score),
+                h('div', { class: 'small muted' }, Math.round(r.score_rate * 100) + '%')),
+            },
+            { title: '提交次数', width: '90px', class: 'num', render: (r) => r.tries },
+            {
+              title: '逐题状态', render: (r) => h('div', { class: 'cell-dots' },
+                ...problems.map((p) => {
+                  const c = r.cells[String(p.id)] || {};
+                  const tone = !c.submitted ? 'none'
+                    : c.type === 'programming' ? (c.solved ? 'ok' : (c.verdict ? 'bad' : 'mid'))
+                    : 'mid';
+                  const label = !c.submitted ? '未提交'
+                    : c.type === 'programming' ? (c.solved ? '已通过 ' + c.best : (c.verdict || '已提交') + ' ' + (c.best ?? ''))
+                    : '已提交 · 互评 ' + (c.review_score == null ? '未出分' : c.review_score);
+                  return h('span', {
+                    class: 'cell-dot cell-dot--' + tone,
+                    title: p.title + '：' + label + (c.tries ? `（共提交 ${c.tries} 次）` : ''),
+                  }, c.submitted ? (c.type === 'programming' ? (c.solved ? '✓' : '×') : '文') : '–');
+                })),
+            },
+            {
+              title: '', width: '120px',
+              render: (r) => h('button', {
+                class: 'btn btn--soft btn--xs',
+                onclick: () => openStudentSubmission(r, problems, a),
+              }, '查看具体提交'),
+            },
+          ],
+          rows,
+          { dense: true, empty: '没有符合条件的学生' }
+        )
+      )
+    );
+  };
+  paint();
+  return h('div', { class: 'mb16' }, box);
+}
+
+async function openStudentSubmission(row, problems, a) {
+  const body = h('div', {}, U.loading('正在读取该同学的提交…'));
+  const drawer = U.drawer(`${row.name} · ${a.title}`, body, { width: 780 });
+  const lines = [];
+  problems.forEach((p) => {
+    const c = row.cells[String(p.id)] || {};
+    lines.push(
+      h('div', { class: 'sub-line' },
+        h('div', { class: 'sub-line__head' },
+          h('b', {}, p.title),
+          p.type === 'programming' ? U.badge('编程题', 'brand') : U.badge('主观题', 'blue'),
+          c.submitted
+            ? (c.solved ? U.badge('已通过', 'ok')
+              : c.type === 'programming' ? U.verdictBadge(c.verdict) : U.badge('已提交', 'warn'))
+            : U.badge('未提交', 'neutral')),
+        h('div', { class: 'sub-line__meta' },
+          h('span', {}, `提交 ${c.tries || 0} 次`),
+          c.best != null ? h('span', {}, `最高分 ${c.best}`) : null,
+          c.time_ms ? h('span', {}, `用时 ${U.fmtTime(c.time_ms)}`) : null,
+          c.memory_kb ? h('span', {}, `内存 ${U.fmtMem(c.memory_kb)}`) : null,
+          c.language ? h('span', {}, c.language) : null,
+          c.submitted_at ? h('span', {}, U.fmtDate(c.submitted_at)) : null,
+          c.review_score != null ? h('span', {}, `互评得分 ${c.review_score}`) : null),
+        h('div', { class: 'row mt8', style: { gap: '8px' } },
+          c.submission_id
+            ? U.btn('查看代码与逐测试点', {
+                tone: 'soft', size: 'xs',
+                onClick: () => openSubmissionDrawer(c.submission_id),
+              })
+            : null,
+          p.type !== 'programming'
+            ? U.btn('查看主观题作答', {
+                tone: 'soft', size: 'xs',
+                onClick: () => openSubjectiveDrawer(row.user_id, p.id),
+              })
+            : null,
+          !c.submitted ? h('span', { class: 'small muted' }, '该同学没有提交这道题') : null)
+      )
+    );
+  });
+  clear(body).appendChild(h('div', {},
+    h('div', { class: 'row mb16', style: { gap: '8px', flexWrap: 'wrap' } },
+      U.badge(`完成 ${row.submitted_problems}/${problems.length} 题`, 'brand'),
+      U.badge(`通过 ${row.solved_problems} 题`, 'ok'),
+      U.badge(`得分 ${row.score} / ${(problems.length * 100)}`, 'blue'),
+      U.badge(`提交 ${row.tries} 次`, 'neutral')),
+    h('div', { class: 'col', style: { gap: '10px' } }, ...lines)));
+  return drawer;
+}
+
+async function openSubjectiveDrawer(userId, problemId) {
+  try {
+    const rows = await api.get('/api/subjective', { problem_id: problemId });
+    const mine = (rows || []).find((r) => r.user_id === userId);
+    if (!mine) return fail('没有找到这道题的主观题作答');
+    const detail = await api.get('/api/subjective/' + mine.id);
+    const content = detail.content || {};
+    const rubric = detail.rubric || [];
+    const sections = (rubric[0] && rubric[0].sections) || [];
+    U.drawer(`${detail.user_name || ''} · ${detail.problem_title}`, h('div', {},
+      h('div', { class: 'row mb16', style: { gap: '8px' } },
+        U.badge(detail.status === 'done' ? '已完成互评' : '等待互评', detail.status === 'done' ? 'ok' : 'warn'),
+        detail.final_score != null ? U.badge('互评得分 ' + detail.final_score, 'brand') : null),
+      h('div', { class: 'col', style: { gap: '14px' } },
+        ...(sections.length
+          ? sections.map((s) => h('div', {},
+              h('h4', { class: 'small' }, s.name),
+              h('div', { class: 'conclusion' }, content[s.key] || '（未作答）')))
+          : Object.entries(content).map(([k, v]) => h('div', {},
+              h('h4', { class: 'small' }, k),
+              h('div', { class: 'conclusion' }, String(v))))))
+    ), { width: 720 });
+  } catch (e) {
+    fail(e.message);
+  }
+}
+
+/** 某份互评结果里，谁评的、给了几分、写了什么意见 */
+function openReviewDetail(row, problemTitle) {
+  const details = row.details || [];
+  U.drawer(`${row.name} · ${problemTitle} 的评审明细`, h('div', {},
+    h('div', { class: 'row mb16', style: { gap: '8px', flexWrap: 'wrap' } },
+      U.badge(`最终得分 ${row.score}`, 'brand'),
+      U.badge(`${details.length} 位评审者`, 'blue'),
+      row.spread > 20 ? U.badge(`极差 ${row.spread}（分歧较大）`, 'warn') : U.badge(`极差 ${row.spread}`, 'neutral')),
+    details.length
+      ? h('div', { class: 'col', style: { gap: '10px' } }, ...details.map((d) =>
+          h('div', { class: 'sub-line' },
+            h('div', { class: 'sub-line__head' },
+              h('b', {}, d.reviewer_name || ('#' + d.reviewer_id)),
+              h('span', { class: 'small muted' }, d.reviewer_class || ''),
+              U.badge('给分 ' + (d.total == null ? '—' : d.total), (d.total || 0) > row.score + 10 ? 'warn' : 'brand')),
+            h('div', { class: 'sub-line__meta' },
+              Object.entries(d.scores || {}).map(([k, v]) => h('span', {}, `${k} ${v}`)),
+              d.duration_sec ? h('span', {}, `用时 ${Math.round(d.duration_sec)} 秒`) : null,
+              d.submitted_at ? h('span', {}, U.fmtDate(d.submitted_at)) : null),
+            d.comment ? h('div', { class: 'conclusion mt8' }, d.comment) : null))
+        )
+      : U.empty('这位同学的作业还没有收到评审', '')));
+}
+
+export async function openSubmissionDrawerById(id) {
+  return openSubmissionDrawer(id);
 }
 
 async function openSubmissionDrawer(id) {

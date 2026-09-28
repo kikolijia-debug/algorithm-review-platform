@@ -58,9 +58,16 @@ function shortNum(v) {
 export function barChart(data, opts = {}) {
   const {
     width = 640, height = 240, tone = 'brand', color, valueKey = 'value', labelKey = 'label',
-    max, horizontal = false, showValue = true, unit = '', stacked = null, colors = PALETTE,
+    max, horizontal = false, showValue = true, unit = '', valueUnit = '', labelUnit = '',
+    stacked = null, colors = PALETTE,
   } = opts;
-  const pad = horizontal ? { l: 96, r: 48, t: 12, b: 24 } : { l: 44, r: 14, t: 18, b: 44 };
+  // 标签较长或类别较多时把 X 轴标签斜着放，避免名字叠在一起
+  const labels = data.map((d) => String(d[labelKey] ?? ''));
+  const maxLabelLen = labels.reduce((a, t) => Math.max(a, t.length), 0);
+  const tilted = !horizontal && (maxLabelLen > 4 || data.length > 12);
+  const pad = horizontal
+    ? { l: 112, r: 48, t: 12, b: 24 }
+    : { l: 44, r: 14, t: 18, b: tilted ? 76 : 44 };
   const W = width - pad.l - pad.r;
   const H = height - pad.t - pad.b;
   const keys = stacked || null;
@@ -78,11 +85,11 @@ export function barChart(data, opts = {}) {
     if (horizontal) {
       const x = pad.l + (v / mx) * W;
       kids.push(s('line', { x1: x, y1: pad.t, x2: x, y2: pad.t + H, class: 'grid' }));
-      kids.push(s('text', { x, y: pad.t + H + 16, class: 'axis', 'text-anchor': 'middle', text: shortNum(v) }));
+      kids.push(s('text', { x, y: pad.t + H + 16, class: 'axis', 'text-anchor': 'middle', text: shortNum(v) + (valueUnit || unit) }));
     } else {
       const y = pad.t + H - (v / mx) * H;
       kids.push(s('line', { x1: pad.l, y1: y, x2: pad.l + W, y2: y, class: 'grid' }));
-      kids.push(s('text', { x: pad.l - 8, y: y + 4, class: 'axis', 'text-anchor': 'end', text: shortNum(v) }));
+      kids.push(s('text', { x: pad.l - 8, y: y + 4, class: 'axis', 'text-anchor': 'end', text: shortNum(v) + (valueUnit || unit) }));
     }
   }
 
@@ -105,7 +112,7 @@ export function barChart(data, opts = {}) {
           }, s('title', { text: `${d[labelKey]} · ${k}: ${v}` }))
         );
       });
-      kids.push(s('text', { x: pad.l - 10, y: y + bh / 2 + 4, class: 'axis axis--label', 'text-anchor': 'end', text: d[labelKey] }));
+      kids.push(s('text', { x: pad.l - 10, y: y + bh / 2 + 4, class: 'axis axis--label', 'text-anchor': 'end', text: String(d[labelKey]) + labelUnit }));
       if (showValue) {
         kids.push(s('text', { x: pad.l + (total / mx) * W + 6, y: y + bh / 2 + 4, class: 'axis axis--value', text: shortNum(total) + unit }));
       }
@@ -130,10 +137,18 @@ export function barChart(data, opts = {}) {
         kids.push(s('text', { x: cx, y: pad.t + H - (total / mx) * H - 6, class: 'axis axis--value', 'text-anchor': 'middle', text: shortNum(total) + unit }));
       }
       const lbl = String(d[labelKey]);
-      kids.push(s('text', {
-        x: cx, y: pad.t + H + 18, class: 'axis axis--label', 'text-anchor': 'middle',
-        text: lbl.length > 6 ? lbl.slice(0, 6) + '…' : lbl,
-      }, s('title', { text: lbl })));
+      if (tilted) {
+        kids.push(s('text', {
+          x: cx, y: pad.t + H + 14, class: 'axis axis--label',
+          'text-anchor': 'end', transform: `rotate(-38 ${cx} ${pad.t + H + 14})`,
+          text: (lbl.length > 10 ? lbl.slice(0, 10) + '…' : lbl) + labelUnit,
+        }, s('title', { text: lbl })));
+      } else {
+        kids.push(s('text', {
+          x: cx, y: pad.t + H + 18, class: 'axis axis--label', 'text-anchor': 'middle',
+          text: lbl + labelUnit,
+        }, s('title', { text: lbl })));
+      }
     }
   });
   kids.push(s('line', { x1: pad.l, y1: pad.t + H, x2: pad.l + W, y2: pad.t + H, class: 'axis-line' }));

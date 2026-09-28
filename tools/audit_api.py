@@ -437,6 +437,13 @@ def main() -> int:
               {"method": "mcmf", "reviews_per_submission": 1, "max_load": 1},
               role="teacher", timeout=180,
               probe=lambda p: d(p, "data", "report") is not None or True)
+        check("分配后进入「待教师确认」状态", f"/api/assignments/{aid}", role="teacher",
+              probe=lambda p: d(p, "data", "allocation_status") == "draft")
+        check("未确认前学生看不到该作业的评审任务", "/api/reviews/mine", role="student",
+              probe=lambda p: all(x.get("assignment_id") != aid for x in p.get("data", [])))
+        check("教师确认并发布互评分配", f"/api/assignments/{aid}/publish-allocation", "POST",
+              {}, role="teacher",
+              probe=lambda p: d(p, "data", "allocation_status") == "confirmed")
         allocs = d(check("查看分配结果", f"/api/assignments/{aid}/allocations", role="teacher"),
                    "data", "allocations", default=[])
         if allocs:
@@ -461,6 +468,18 @@ def main() -> int:
               timeout=180, probe=lambda p: isinstance(d(p, "data", "report"), list))
         check("查看评分结果", f"/api/assignments/{aid}/review-results", role="teacher",
               probe=lambda p: isinstance(p.get("data"), list))
+        if allocs:
+            al0 = allocs[0]
+            check("教师手工调整评审人（先移除再补回）",
+                  f"/api/assignments/{aid}/allocation/adjust", "POST",
+                  {"problem_id": al0["problem_id"], "author_id": al0["author_id"],
+                   "remove_reviewer_id": al0["reviewer_id"]},
+                  role="teacher",
+                  probe=lambda p: d(p, "data", "count") is not None)
+            check("调整后重新回到待确认状态", f"/api/assignments/{aid}", role="teacher",
+                  probe=lambda p: d(p, "data", "allocation_status") == "draft")
+            check("作业完成情况（学生×题目）", f"/api/assignments/{aid}/progress", role="teacher",
+                  probe=lambda p: isinstance(d(p, "data", "students"), list))
     if TOKENS.get("student"):
         check("我的互评任务", "/api/reviews/mine", role="student",
               probe=lambda p: isinstance(p.get("data"), list))

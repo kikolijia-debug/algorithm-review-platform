@@ -187,6 +187,7 @@ function read(path, q) {
       if (tail.length === 1) return assignments.map(assignmentSummary);
       if (tail[2] === 'allocations') return allocationsOf(Number(tail[1]));
       if (tail[2] === 'review-results') return reviewResults(Number(tail[1]));
+      if (tail[2] === 'progress') return assignmentProgress(Number(tail[1]));
       return assignmentDetail(Number(tail[1]));
     case 'submissions':
       if (tail[1] === 'stats') return submissionStats(q);
@@ -252,6 +253,58 @@ function publicStats() {
     chapters: (DS.chapters || []).length,
     materials: (DS.materials || []).length,
     assignments: DS.assignments.length,
+  };
+}
+
+/** 单个作业的全班完成情况（静态演示模式下用导出的提交快照现算） */
+function assignmentProgress(aid) {
+  const a = DS.assignments.find((x) => x.id === aid);
+  if (!a) return fail('作业不存在');
+  const problems = a.problems || [];
+  const full = problems.reduce((s, p) => s + (p.score || 100), 0);
+  const subs = DS.submissions.filter((s) => s.assignment_id === aid);
+  const subj = (DS.subjective || []).filter((s) => s.assignment_id === aid);
+  const rows = DS.students.map((st) => {
+    const cells = {}, seen = new Set();
+    let tries = 0, solved = 0, score = 0;
+    problems.forEach((p) => {
+      const mine = subs.filter((s) => s.user_id === st.id && s.problem_id === p.id);
+      const sj = subj.find((s) => s.user_id === st.id && s.problem_id === p.id);
+      const best = mine.reduce((m, s) => Math.max(m, s.score || 0), -1);
+      const ok = mine.some((s) => s.verdict === 'Accepted');
+      const last = mine.length ? mine[mine.length - 1] : null;
+      cells[String(p.id)] = {
+        problem_id: p.id, type: p.type, tries: mine.length,
+        solved: ok, best: best < 0 ? null : best, verdict: last ? last.verdict : null,
+        submitted: !!mine.length || !!sj, submission_id: last ? last.id : null,
+        language: last ? last.language : null, submitted_at: last ? last.submitted_at : null,
+        review_score: sj ? sj.final_score : null,
+        subjective_status: sj ? sj.status : null,
+      };
+      if (mine.length) { tries += mine.length; if (ok) solved += 1; score += Math.max(0, best); }
+      if (sj) { tries += 1; score += sj.final_score || 0; }
+      if (mine.length || sj) seen.add(p.id);
+    });
+    return {
+      user_id: st.id, name: st.name, student_no: st.student_no, class_name: st.class_name,
+      cells, submitted_problems: seen.size, solved_problems: solved, tries,
+      score: Math.round(score * 10) / 10,
+      score_rate: full ? score / full : 0,
+    };
+  });
+  rows.sort((x, y) => y.score - x.score);
+  rows.forEach((r, i) => (r.rank = i + 1));
+  return {
+    assignment: { ...a, allocation_status: a.allocation_status || 'confirmed' },
+    problems,
+    students: rows,
+    full_score: full,
+    stats: {
+      students: rows.length,
+      submitted_all: rows.filter((r) => r.submitted_problems === problems.length).length,
+      none: rows.filter((r) => r.submitted_problems === 0).length,
+      avg_score: rows.length ? Math.round(rows.reduce((s, r) => s + r.score, 0) / rows.length * 10) / 10 : 0,
+    },
   };
 }
 

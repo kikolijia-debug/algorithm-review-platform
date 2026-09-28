@@ -290,15 +290,17 @@ class Seeder:
         by_key = {p["meta"]["key"]: p for p in ids["prog_problems"]}
         subj = ids["subj_problems"]
 
-        def mk(title, desc, probs, start, due, review_due, status, peer=0, k=3, maxload=4):
+        def mk(title, desc, probs, start, due, review_due, status, peer=0, k=3, maxload=4,
+               alloc_status="confirmed"):
             aid = db.ex(
                 "INSERT INTO assignments(course_id,title,description,type,start_at,due_at,"
                 "review_due_at,reviews_per_submission,max_load,aggregation_method,allocate_method,"
-                "params,status,peer_review,created_by,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "params,status,peer_review,allocation_status,created_by,created_at) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     cid, title, desc, "subjective" if peer else "programming", start, due,
                     review_due, k, maxload, "reliability_em", "mcmf", "{}", status, peer,
-                    teacher, start,
+                    alloc_status, teacher, start,
                 ),
             )
             db.exmany(
@@ -343,7 +345,7 @@ class Seeder:
                      "证明题 + 开放性设计题。互评进行中，请注意评审截止时间。",
                      [subj[1], subj[2]],
                      db.days_ago(14, 8, 0), db.days_ago(5, 23, 59), db.days_ahead(7, 23, 59),
-                     "reviewing", peer=1, k=3, maxload=4),
+                     "reviewing", peer=1, k=3, maxload=4, alloc_status="draft"),
             "a8": mk("算法分析报告三：主定理与并查集复杂度（第 4、7 章）",
                      "主定理求解递归式、Karatsuba / Strassen 分析，以及并查集两种启发式的复杂度论证。",
                      [subj[4], subj[6]],

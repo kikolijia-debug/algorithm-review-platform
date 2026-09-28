@@ -4,6 +4,9 @@ const routes = [];
 let notFound = null;
 let beforeEach = null;
 let current = null;
+//: 浏览轨迹：用于「← 返回上一页」，比按层级猜更符合老师的使用直觉
+let trail = [];
+let lastPath = null;
 
 export function register(pattern, handler, meta = {}) {
   const names = [];
@@ -50,6 +53,14 @@ export function navigate(path, { replace = false } = {}) {
   else location.hash = target;
 }
 
+function remember(p) {
+  if (lastPath && lastPath !== p) {
+    trail.push(lastPath);
+    if (trail.length > 40) trail.shift();
+  }
+  lastPath = p;
+}
+
 export function path() {
   const raw = location.hash.replace(/^#/, '');
   return raw || '/';
@@ -66,6 +77,7 @@ export function resolve() {
       const ctx = { path: p, params, query, meta: r.meta, render: r.handler };
       if (beforeEach && beforeEach(ctx) === false) return;
       current = ctx;
+      remember(p);
       r.handler(ctx);
       window.scrollTo({ top: 0 });
       return;
@@ -77,4 +89,21 @@ export function resolve() {
 export function start() {
   window.addEventListener('hashchange', resolve);
   resolve();
+}
+
+/** 上一个访问过的页面（跳过与当前页相同的项）；没有轨迹时返回 fallback。 */
+export function previousPath(fallback = null) {
+  const now = path().split('?')[0];
+  for (let i = trail.length - 1; i >= 0; i--) {
+    if (trail[i] !== now) return trail[i];
+  }
+  return fallback;
+}
+
+/** 回到上一个访问过的页面（找不到轨迹时退到 fallback）。 */
+export function back(fallback = null) {
+  const target = previousPath(fallback);
+  if (!target) return false;
+  navigate(target, { replace: true });
+  return true;
 }

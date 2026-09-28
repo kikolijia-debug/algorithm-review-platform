@@ -12,6 +12,7 @@ import { ok, fail, info, confirmDialog } from '../core/toast.js';
 import * as U from '../core/ui.js';
 import * as C from '../core/charts.js';
 import { PROBLEM_TYPE, ANOMALY_TYPE, METHOD_LABEL, ALLOC_LABEL, masteryTone, verdictColorOf } from '../core/format.js';
+import { openSubmissionDrawerById } from './teacher-core.js';
 
 /* ==================================================== 学习过程分析 */
 
@@ -31,6 +32,7 @@ export function renderAnalytics({ klass, knowledge, timeline, ability }, contain
     const ov = klass.overview;
     const verdicts = klass.verdicts || [];
     const scores = (klass.ranking || []).map((r) => r.score);
+    const rule = klass.score_rule || {};
     return h(
       'div',
       {},
@@ -42,17 +44,26 @@ export function renderAnalytics({ klass, knowledge, timeline, ability }, contain
         U.stat(ov.avg_submissions_per_student, '人均提交次数', { tone: 'brand' })),
       h('div', { class: 'grid grid--side' },
         U.card(
-          U.cardHead('题目通过率与提交次数', { sub: '点击表头排序，横向滚轮查看更多题目' }),
+          U.cardHead('题目通过率与提交次数', {
+            sub: '每题满分 100 分；通过率 = 通过人数 ÷ 提交人数，横向滚动可看更多列',
+          }),
           U.table(
             [
               { title: '题目', render: (p) => h('div', {}, h('b', {}, p.title), U.tagList(p.topics, 'soft')) },
               { title: '类型', width: '92px', render: (p) => U.badge(PROBLEM_TYPE[p.type] || p.type, p.type === 'programming' ? 'brand' : 'blue') },
+              { title: '满分', width: '74px', class: 'num', render: (p) => (p.score == null ? 100 : p.score) },
               { title: '通过率', width: '170px', render: (p) => h('div', {}, U.progress(p.pass_rate), h('span', { class: 'small muted' }, `${p.ac_count}/${p.students} 人`)) },
               { title: '人均提交', width: '96px', class: 'num', render: (p) => p.avg_tries },
               { title: '最多提交', width: '96px', class: 'num', render: (p) => p.max_tries },
               { title: '平均用时', width: '104px', class: 'num', render: (p) => (p.avg_time_ms ? U.fmtTime(p.avg_time_ms) : '—') },
               { title: '未提交', width: '86px', class: 'num', render: (p) => (p.zero_submit ? h('span', { class: 'tone-warn' }, p.zero_submit) : 0) },
-              { title: '', width: '70px', render: (p) => h('button', { class: 'btn btn--plain btn--xs', onclick: () => router.navigate('/problem/' + p.id) }, '查看') },
+              {
+                title: '', width: '110px',
+                render: (p) => h('button', {
+                  class: 'btn btn--plain btn--xs',
+                  onclick: () => openSubmissionStatus(p),
+                }, '查看提交情况'),
+              },
             ],
             klass.problems,
             { dense: true }
@@ -68,24 +79,29 @@ export function renderAnalytics({ klass, knowledge, timeline, ability }, contain
               : U.empty('暂无数据', '')
           ),
           U.card(
-            U.cardHead('成绩分布', { sub: '按学生累计得分统计' }),
+            U.cardHead('成绩分布', { sub: rule.formula || '按学生累计得分统计' }),
             scores.length ? C.barChart(
-              histogram(scores, 10).map((b) => ({ label: b.x.toFixed(0) + '~', value: b.count })),
-              { width: 420, height: 210, tone: 'brand' }
-            ) : U.empty('暂无数据', '')
+              histogram(scores, 10).map((b) => ({ label: b.x.toFixed(0), value: b.count })),
+              { width: 420, height: 230, tone: 'brand', labelUnit: ' 分', valueUnit: ' 人' }
+            ) : U.empty('暂无数据', ''),
+            rule.formula
+              ? U.note(`${rule.note}　满分 = ${rule.problem_count} 道题 × ${rule.per_problem} 分 = ${rule.full_score} 分。`, 'ok')
+              : null
           )
         )),
       h('div', { class: 'grid grid--2 mt16' },
         U.card(
-          U.cardHead('常见错误热点', { sub: '低通过率 + 高提交次数 = 教学重点' }),
+          U.cardHead('常见错误热点', { sub: '低通过率 + 高提交次数 = 教学重点；点一行看这个错误为什么会发生' }),
           klass.error_hotspots.length
             ? U.table(
                 [
                   { title: '题目', render: (e) => e.title },
                   { title: '判定', render: (e) => U.verdictBadge(e.verdict) },
                   { title: '次数', class: 'num', render: (e) => e.c },
+                  { title: '', width: '74px', render: (e) => h('span', { class: 'small muted', html: U.icon.arrow }) },
                 ],
-                klass.error_hotspots, { dense: true })
+                klass.error_hotspots,
+                { dense: true, onRow: (e) => openErrorDetail(e) })
             : U.empty('暂无错误记录', '')
         ),
         U.card(
@@ -94,10 +110,16 @@ export function renderAnalytics({ klass, knowledge, timeline, ability }, contain
             [
               { title: '#', width: '50px', render: (r) => r.rank },
               { title: '姓名', render: (r) => h('div', {}, h('b', {}, r.name), h('div', { class: 'small muted' }, r.class_name || '')) },
-              { title: '累计得分', width: '100px', class: 'num', render: (r) => Math.round(r.score) },
+              { title: '累计得分', width: '110px', class: 'num', render: (r) => h('div', {}, h('b', {}, Math.round(r.score)), h('div', { class: 'small muted' }, `满分 ${rule.full_score || '—'}`)) },
               { title: '通过次数', width: '90px', class: 'num', render: (r) => r.ac },
               { title: '提交次数', width: '90px', class: 'num', render: (r) => r.submissions },
-              { title: '', width: '70px', render: (r) => h('button', { class: 'btn btn--plain btn--xs', onclick: () => router.navigate('/student/report') }, '报告') },
+              {
+                title: '', width: '86px',
+                render: (r) => h('button', {
+                  class: 'btn btn--plain btn--xs',
+                  onclick: () => router.navigate('/teacher/student/' + r.user_id),
+                }, '查看报告'),
+              },
             ],
             klass.ranking.slice(0, 20), { dense: true })
         ))
@@ -215,6 +237,138 @@ export function renderAnalytics({ klass, knowledge, timeline, ability }, contain
     tabBar, tabsBox);
 }
 
+/**
+ * 「查看提交情况」：谁交了、交了几次、谁还没交。
+ * 数据来自 /api/analytics/problem/{id}（users + not_submitted + detail）。
+ */
+async function openSubmissionStatus(p) {
+  const body = h('div', {}, U.loading('正在统计提交情况…'));
+  U.drawer(p.title + ' · 提交情况', body, { width: 760 });
+  try {
+    const d = await api.get('/api/analytics/problem/' + p.id);
+    const detail = d.detail || {};
+    const submitted = (d.users || []).map((u) => ({
+      ...u, records: detail[u.user_id] || [],
+    }));
+    const missing = d.not_submitted || [];
+    const totalTries = submitted.reduce((a, u) => a + u.tries, 0);
+    clear(body).appendChild(h('div', {},
+      h('div', { class: 'stat-row mb16' },
+        U.stat(d.students_total, '班级人数'),
+        U.stat(submitted.length, '已提交', { tone: 'ok' }),
+        U.stat(missing.length, '未提交', { tone: missing.length ? 'warn' : 'ok' }),
+        U.stat(totalTries, '提交总次数', { tone: 'blue' }),
+        U.stat(submitted.length ? Math.round(submitted.reduce((a, u) => a + u.tries, 0) / submitted.length * 10) / 10 : 0, '人均提交次数', { tone: 'brand' })),
+      missing.length
+        ? U.card(
+            U.cardHead('未提交名单', { sub: `${missing.length} 人` }),
+            h('div', { class: 'row row--wrap', style: { gap: '8px' } },
+              ...missing.map((s) => h('span', { class: 'badge badge--warn' },
+                s.name + (s.class_name ? ' · ' + s.class_name : '')))))
+        : U.note('全班都提交了这道题', 'ok'),
+      h('div', { class: 'mt16' },
+        U.card(
+          U.cardHead('已提交学生明细', { sub: '按最高分排序；点行可看每次提交的判定' }),
+          U.table(
+            [
+              { title: '学生', render: (u) => h('div', {}, h('b', {}, u.name), h('div', { class: 'small muted' }, u.class_name || '')) },
+              { title: '状态', width: '100px', render: (u) => (u.solved ? U.badge('已通过', 'ok') : U.verdictBadge(u.verdict)) },
+              { title: '最高分', width: '84px', class: 'num', render: (u) => u.best },
+              { title: '提交次数', width: '90px', class: 'num', render: (u) => u.tries },
+              { title: '每次判定', render: (u) => h('div', { class: 'dot-line' },
+                  ...u.records.map((r) => h('span', {
+                    class: 'cell-dot cell-dot--' + (r.verdict === 'Accepted' ? 'ok' : 'bad'),
+                    title: `第 ${r.attempt_no} 次 · ${r.verdict} · ${r.score} 分${r.submitted_at ? ' · ' + r.submitted_at : ''}`,
+                  }, r.verdict === 'Accepted' ? '✓' : '×'))) },
+              { title: '', width: '80px', render: (u) => (u.records.length && u.records[u.records.length - 1].id
+                  ? h('button', {
+                      class: 'btn btn--plain btn--xs',
+                      onclick: () => openSubmissionDrawerById(u.records[u.records.length - 1].id),
+                    }, '看代码')
+                  : null) },
+            ],
+            submitted,
+            { dense: true, empty: '还没有学生提交' })
+        ))
+    ));
+  } catch (e) {
+    clear(body).appendChild(U.empty('加载失败', e.message));
+  }
+}
+
+/** 「常见错误热点」点开后的解释：这类判定一般是什么原因造成的 */
+function openErrorDetail(e) {
+  const why = ERROR_REASONS[e.verdict] || {
+    title: e.verdict,
+    cause: '这类判定表示程序输出与期望不一致，需要结合具体测试点排查。',
+    advice: '建议让学生对照样例与边界数据自查，或调用「重测」查看逐测试点结果。',
+  };
+  U.modal(`常见错误：${why.title}`, h('div', {},
+    h('div', { class: 'row mb16', style: { gap: '10px' } },
+      U.verdictBadge(e.verdict),
+      U.badge(e.title, 'brand'),
+      U.badge(`出现 ${e.c} 次`, 'warn')),
+    h('div', { class: 'conclusion' },
+      h('p', {}, h('b', {}, '为什么会这样：'), why.cause),
+      h('p', { class: 'mt8' }, h('b', {}, '怎么处理：'), why.advice)),
+    why.points && why.points.length
+      ? h('div', { class: 'mt16' },
+          h('h4', { class: 'small' }, '常见触发点'),
+          U.tagList(why.points, 'soft'))
+      : null,
+    h('div', { class: 'row mt16', style: { gap: '8px' } },
+      h('button', {
+        class: 'btn btn--soft btn--sm',
+        onclick: () => router.navigate('/problem/' + e.problem_id),
+      }, '查看题目与测试点'))
+  ), { width: 620 });
+}
+
+const ERROR_REASONS = {
+  'Wrong Answer': {
+    title: 'Wrong Answer（答案错误）',
+    cause: '程序能跑完，但在某些输入上给出的输出和标准答案不同。多数来自：边界没考虑（n=1、空输入、极大值）、'
+      + '下标越界访问到随机值、整数溢出、或者算法本身的理解有偏差。',
+    advice: '让学生先用样例和自己在纸上算的小数据自查，再对着「逐测试点」找出第一个失败的点；'
+      + '教师端可以直接点开该提交看每个测试点的输入规模与耗时。',
+    points: ['边界数据', '溢出', '下标越界', '题意理解偏差'],
+  },
+  'Time Limit Exceeded': {
+    title: 'Time Limit Exceeded（超时）',
+    cause: '程序在时限内没跑完。最常见的是复杂度不达标：该用 O(n log n) 的写了 O(n²)，'
+      + '或者用了递归但没有记忆化、反复重复计算。',
+    advice: '对照题目要求的复杂度检查算法，用「算法实验台 → 复杂度实测」验证实际增长阶；'
+      + '也可以在题目详情里比较不同规模测试点的耗时，看是否出现倍增比异常的测试点。',
+    points: ['复杂度不达标', '未记忆化', '常数过大', '死循环'],
+  },
+  'Runtime Error': {
+    title: 'Runtime Error（运行时错误）',
+    cause: '程序异常退出，通常是数组越界、除零、递归太深导致栈溢出，或者对空结构取元素。',
+    advice: '检查数组开得够不够（例如线段树要 4n）、递归深度与边界判断；'
+      + 'Java 的 StackOverflowError、C++ 的段错误都属于这一类。',
+    points: ['数组越界', '除零', '栈溢出', '空指针'],
+  },
+  'Memory Limit Exceeded': {
+    title: 'Memory Limit Exceeded（超内存）',
+    cause: '运行期内存峰值超过限制。常见于开了过大的二维数组、把 O(n²) 的数据结构塞进内存、'
+      + '或者把编译/启动开销算进了程序本身。',
+    advice: '把二维改成一维滚动数组，或换用更省内存的表示；注意平台的评测已经把编译器启动开销扣除。',
+    points: ['二维数组过大', '未滚动数组', '递归占用大'],
+  },
+  'Compile Error': {
+    title: 'Compile Error（编译错误）',
+    cause: '语法错误、拼写错误、缺少头文件，或者用了当前标准不支持的写法。',
+    advice: '页面里会直接展示编译器的报错信息和行号，按提示逐条修改；',
+    points: ['语法错误', '缺少头文件', '标准版本'],
+  },
+  'Output Limit Exceeded': {
+    title: 'Output Limit Exceeded（输出过多）',
+    cause: '程序输出了远超预期的内容，多半是死循环里不断打印，或者把调试信息留在了提交里。',
+    advice: '检查循环终止条件，提交前删除调试输出。',
+    points: ['死循环打印', '调试输出未删'],
+  },
+};
+
 function renderProblemAnalytics(d) {
   const p = d.problem;
   const timeHist = (d.time_hist || []).map((b) => ({ label: b.x + '~', value: b.count }));
@@ -228,19 +382,32 @@ function renderProblemAnalytics(d) {
       U.stat(d.tries_to_ac.max, '最多尝试次数', { tone: 'warn' }),
       U.stat(U.fmtTime(d.time_stats.max), '最长运行时间', { tone: 'danger', hint: `时限 ${p.time_limit_ms} ms` })),
     h('div', { class: 'grid grid--2' },
-      U.card(U.cardHead('通过所需尝试次数分布'), timeHist.length || d.tries_to_ac.hist.length
-        ? C.barChart((d.tries_to_ac.hist || []).map((b) => ({ label: b.x + ' 次', value: b.count })), { width: 420, height: 220, tone: 'brand' })
-        : U.empty('暂无数据', '')),
-      U.card(U.cardHead('通过提交的耗时分布', { sub: '用于观察是否出现接近时限的实现' }),
-        timeHist.length ? C.barChart(timeHist, { width: 420, height: 220, tone: 'blue' }) : U.empty('暂无数据', '')),
-      U.card(U.cardHead('运行资源统计'),
+      U.card(
+        U.cardHead('通过所需尝试次数分布', {
+          sub: '横轴是「第几次提交才通过」，纵轴是人数；分布靠右说明这道题调试成本高',
+        }),
+        (d.tries_to_ac.hist || []).length
+          ? C.barChart(
+              (d.tries_to_ac.hist || []).map((b) => ({ label: '第 ' + b.x + ' 次', value: b.count })),
+              { width: 420, height: 240, tone: 'brand', valueUnit: ' 人' })
+          : U.empty('暂无数据', '还没有学生通过这道题')),
+      U.card(
+        U.cardHead('通过提交的耗时分布', {
+          sub: `横轴是运行耗时区间（毫秒），纵轴是通过该题的提交数；时限 ${p.time_limit_ms} ms，`
+            + '柱子越靠近右侧说明实现越接近超时',
+        }),
+        timeHist.length
+          ? C.barChart(timeHist, { width: 420, height: 240, tone: 'blue', valueUnit: ' 次' })
+          : U.empty('暂无数据', '还没有通过的提交')),
+      U.card(U.cardHead('运行资源统计', { sub: '通过这道题的提交在时间与内存上的分布' }),
         U.kv([
           ['用时中位数', U.fmtTime(d.time_stats.median)],
           ['用时 P95', U.fmtTime(d.time_stats.p95)],
           ['内存中位数', U.fmtMem(d.memory_stats.median)],
           ['内存峰值', U.fmtMem(d.memory_stats.max)],
-        ])),
-      U.card(U.cardHead('判定分布'),
+        ]),
+        U.note('P95 表示「95% 的提交都比这个值更快」，用它来判断是否存在普遍接近时限的写法。')),
+      U.card(U.cardHead('判定分布', { sub: '这道题全部提交的判定构成' }),
         Object.keys(d.verdicts).length
           ? C.donutChart(Object.entries(d.verdicts).map(([k, v]) => ({ label: k, value: v, color: verdictColorOf(k) })),
               { width: 260, height: 200, centerValue: Object.values(d.verdicts).reduce((a, b) => a + b, 0), centerLabel: '次提交' })
@@ -299,13 +466,38 @@ export function renderAbility({ ability, knowledge }) {
       eyebrow: 'IRT / ELO',
       sub: '1PL Rasch 联合估计能力 θ 与难度 b，并与 ELO 对照。',
     }),
+    U.card(
+      U.cardHead('这两个模型分别是干什么的', { sub: 'IRT 估能力与难度，ELO 追踪能力变化——两者相互独立、互为验证' }),
+      h('div', { class: 'grid grid--2' },
+        h('div', { class: 'conclusion' },
+          h('b', {}, 'IRT（项目反应理论）—— 用来“同时”估计学生能力和题目难度'),
+          h('p', { class: 'mt8' },
+            '它把「某个学生做对某道题」看成一条概率曲线：能力 θ 越高、题目难度 b 越低，做对的概率越大。'
+            + '用全部作答记录一起做极大似然估计，就能得到每位学生的能力值 θ 和每道题的难度 b。'
+            + '下方表格里的「IRT 能力（0-100 归一化）」就是把 θ 线性映射到 0~100 便于比较；'
+            + '「区分度 a」表示这道题对中等水平学生的分辨能力（2PL 才放开该参数）。')),
+        h('div', { class: 'conclusion' },
+          h('b', {}, 'ELO —— 用来“实时”追踪能力变化'),
+          h('p', { class: 'mt8' },
+            '借鉴棋类评分：每交一次题就按结果更新一次分数，做对了涨分、做错了扣分，涨跌幅度取决于对手（题目）的强度。'
+            + 'IRT 是“全量一次性”估计，ELO 是“逐次在线”更新，两者相互独立。'
+            + '右侧散点图就是二者的对照：点越接近一条直线，说明两种估计给出的排序越一致，'
+            + '也侧面说明这套作答数据本身比较可信。'))),
+      U.note('怎么看：能力值高低是相对本班同学而言的（已经做中心化），难度 b 也是相对值；'
+        + 'b 越大越难，学生 θ 与题目 b 的差值才是预测“做不做得出来”的关键量。', 'ok')
+    ),
     U.note(`基于 ${ability.n_obs || 0} 条首次提交，迭代 ${ability.iters} 次，对数似然 ${ability.loglik}。`
       + 'θ 与 b 只依赖差值，已做中心化。', 'ok'),
     h('div', { class: 'grid grid--side mt16' },
       U.card(
-        U.cardHead('学生能力分布', { sub: 'IRT 能力值（0-100 归一化）' }),
+        U.cardHead('学生能力分布', { sub: 'IRT 能力值（0-100 归一化），条形越长表示该生综合能力越强' }),
         students.length
-          ? C.barChart(students.slice(0, 30).map((s) => ({ label: s.name, value: s.ability })), { width: 700, height: 260, tone: 'brand', unit: '' })
+          ? C.barChart(
+              students.slice(0, 20).map((s) => ({ label: s.name, value: s.ability })),
+              {
+                width: 700, horizontal: true, height: Math.max(220, Math.min(20, students.length) * 24 + 26),
+                tone: 'brand', unit: '',
+              })
           : U.empty('暂无数据', '')
       ),
       U.card(
@@ -344,10 +536,103 @@ export function renderAbility({ ability, knowledge }) {
   );
 }
 
+/* ==================================================== 单个学生的学习报告 */
+
+export async function loadStudentReport(ctx) {
+  const id = ctx.params.id;
+  const [report, problems] = await Promise.all([
+    api.get('/api/analytics/student/' + id),
+    api.get('/api/problems').catch(() => []),
+  ]);
+  return { report, problems };
+}
+
+/**
+ * 教师视角的学生报告：点「查看报告」进来看到的是**这位同学**的数据，
+ * 而不是登录教师自己的报告。
+ */
+export function renderStudentReport({ report, problems }) {
+  const u = report.user || {};
+  const subs = report.submissions || [];
+  const mastery = Object.entries(report.mastery || {});
+  const solved = report.solved || 0;
+  const tried = report.attempted || 0;
+  const best = {};
+  subs.forEach((s) => {
+    const cur = best[s.problem_id];
+    if (!cur || (s.score || 0) > (cur.score || 0)) best[s.problem_id] = s;
+  });
+  const titleOf = {};
+  (problems || []).forEach((p) => (titleOf[p.id] = p.title));
+  return h(
+    'div',
+    {},
+    U.pageHeader(`${u.name} 的学习报告`, {
+      eyebrow: u.student_no || ('#' + u.id),
+      sub: `${u.class_name || '未分班'} · 共 ${subs.length} 次提交 · 通过 ${solved} 题 / 作答 ${tried} 题`,
+      actions: h('a', {
+        class: 'btn btn--ghost btn--sm',
+        href: '#/teacher/analytics',
+      }, '返回学情分析'),
+    }),
+    h('div', { class: 'stat-row mb16' },
+      U.stat(subs.length, '提交次数', { tone: 'brand' }),
+      U.stat(solved, '通过题目数', { tone: 'ok' }),
+      U.stat(tried, '作答题目数', { tone: 'blue' }),
+      U.stat(subs.length ? Math.round((subs.filter((s) => s.verdict === 'Accepted').length / subs.length) * 100) + '%' : '—',
+        '提交通过率', { tone: 'warn' })),
+    h('div', { class: 'grid grid--side' },
+      U.card(
+        U.cardHead('知识点掌握', { sub: '按该生在这道题上的最好成绩折算' }),
+        mastery.length
+          ? h('div', { class: 'score-list' },
+              ...mastery.sort((a, b) => a[1] - b[1]).map(([k, v]) =>
+                h('div', { class: 'score-item' },
+                  h('span', { class: 'score-item__name' }, k),
+                  U.meter(v, { tone: masteryTone(v) }),
+                  h('span', { class: ['score-item__val', 'tone-' + masteryTone(v)] }, String(v)))))
+          : U.empty('暂无数据', '')),
+      U.card(
+        U.cardHead('主观题与互评', { sub: '提交情况与互评得分' }),
+        (report.subjective || []).length
+          ? U.table(
+              [
+                { title: '题目', render: (r) => r.problem_title },
+                { title: '状态', width: '110px', render: (r) => U.badge(r.status === 'done' ? '已出分' : '评审中', r.status === 'done' ? 'ok' : 'warn') },
+                { title: '互评得分', width: '100px', class: 'num', render: (r) => (r.final_score == null ? '—' : r.final_score) },
+              ],
+              report.subjective, { dense: true })
+          : U.empty('没有主观题提交', ''))
+    ),
+    h('div', { class: 'mt16' },
+      U.card(
+        U.cardHead('逐题作答情况', { sub: '点击一行查看这份提交的代码与逐测试点结果' }),
+        U.table(
+          [
+            { title: '题目', render: (s) => h('div', {}, h('b', {}, s.problem_title || titleOf[s.problem_id] || ('#' + s.problem_id)),
+                h('div', { class: 'small muted' }, s.problem_type === 'programming' ? '编程题' : '主观题')) },
+            { title: '判定', width: '120px', render: (s) => U.verdictBadge(s.verdict) },
+            { title: '得分', width: '80px', class: 'num', render: (s) => s.score },
+            { title: '用时', width: '100px', class: 'num', render: (s) => U.fmtTime(s.time_ms) },
+            { title: '语言', width: '80px', render: (s) => U.badge(s.language, 'neutral') },
+            { title: '提交时间', width: '150px', render: (s) => U.fmtDate(s.submitted_at) },
+          ],
+          subs,
+          {
+            dense: true, empty: '这位同学还没有提交记录',
+            onRow: (s) => openSubmissionDrawerById(s.id),
+          })
+      ))
+  );
+}
+
 /* ==================================================== 评审过程管理 */
 
 export async function loadReviewAdmin(ctx) {
-  const assignments = await api.get('/api/assignments');
+  const [assignments, students] = await Promise.all([
+    api.get('/api/assignments'),
+    api.get('/api/users', { role: 'student' }).catch(() => []),
+  ]);
   const peer = assignments.filter((a) => a.peer_review);
   const selected = ctx.query.assignment_id || (peer[0] && peer[0].id);
   let allocs = null;
@@ -360,10 +645,11 @@ export async function loadReviewAdmin(ctx) {
       api.get('/api/anomalies', { assignment_id: selected }).catch(() => null),
     ]);
   }
-  return { assignments: peer, selected, allocs, results, anomalies };
+  return { assignments: peer, selected, allocs, results, anomalies, students };
 }
 
-export function renderReviewAdmin({ assignments, selected, allocs, results, anomalies }, container, extraTabs = []) {
+export function renderReviewAdmin({ assignments, selected, allocs, results, anomalies, students },
+                                   container, extraTabs = []) {
   const current = assignments.find((a) => String(a.id) === String(selected));
   const pane = h('div');
 
@@ -456,6 +742,32 @@ export function renderReviewAdmin({ assignments, selected, allocs, results, anom
     return h(
       'div',
       {},
+      current && current.peer_review
+        ? (current.allocation_status === 'draft'
+            ? U.alertRow('high', '本轮互评分配待你确认',
+                `已生成 ${allocs && allocs.stats ? allocs.stats.total : 0} 条评审任务，但还没有发布，学生看不到。`
+                + '确认名单没问题后点击「确认并发布」；需要换人可以在下面的「分配明细」里逐条调整。',
+                h('div', { class: 'row', style: { gap: '6px' } },
+                  U.btn('确认并发布', {
+                    tone: 'primary', size: 'xs',
+                    onClick: async (e) => {
+                      const yes = await confirmDialog({
+                        title: '确认并发布互评分配',
+                        message: '发布后学生就能看到分配给自己的评审任务，且无法再静默改动。确定发布吗？',
+                        confirmText: '确认发布',
+                      });
+                      if (!yes) return;
+                      try {
+                        const r = await api.post(`/api/assignments/${selected}/publish-allocation`);
+                        ok(`已发布 ${r.allocations} 条评审任务，学生现在可以看到`);
+                        router.resolve();
+                      } catch (err) { fail(err.message); }
+                    },
+                  })))
+            : U.alertRow('low', '本轮互评分配已发布',
+                `学生已经可以看到各自的评审任务（共 ${allocs && allocs.stats ? allocs.stats.total : 0} 条）。`
+                + '如需换人，调整后需要重新确认发布。'))
+        : null,
       U.card(
         U.cardHead('执行匿名互评分配', { sub: '最小费用最大流建模 + 2-opt 局部搜索修正' }),
         U.note('分配约束：每份作业恰好获得 k 份评审、每位评审者工作量不超过 c、禁止自评、'
@@ -493,23 +805,45 @@ export function renderReviewAdmin({ assignments, selected, allocs, results, anom
       allocs && allocs.allocations.length
         ? U.card(
             U.cardHead('分配明细', {
-              sub: `${allocs.stats.total} 条 · 已完成 ${allocs.stats.done} 条 · 待完成 ${allocs.stats.pending} 条`,
-              actions: h('span', { class: 'small muted' }, `工作量区间 ${allocs.stats.load_min}~${allocs.stats.load_max}`),
+              sub: `${allocs.stats.total} 条评审任务 · 已完成 ${allocs.stats.done} 条 · 待完成 ${allocs.stats.pending} 条`
+                + ` · 人均工作量 ${allocs.stats.load_min}~${allocs.stats.load_max} 份`,
             }),
-            C.bipartiteGraph(
-              allocs.allocations.slice(0, 220).map((a) => ({ author: a.author_id, reviewer: a.reviewer_id })),
-              { width: 900, height: 340, authorLabel: (x) => '作业#' + x, reviewerLabel: (x) => '评审者#' + x }
-            ),
+            U.note('按「谁的哪道题」分组列出评审者。想换人就直接点右侧「调整评审人」；'
+              + '改过名单后需要重新点「确认并发布」，学生才会看到新任务。', 'ok'),
             U.table(
               [
-                { title: '作业（匿名）', render: (a) => h('span', { class: 'anon-tag' }, a.anon) },
-                { title: '作者', render: (a) => a.author_name },
-                { title: '评审者', render: (a) => h('div', {}, h('b', {}, a.reviewer_name), h('div', { class: 'small muted' }, a.reviewer_class || '')) },
-                { title: '题目', render: (a) => (a.problem_id ? '#' + a.problem_id : '—') },
-                { title: '状态', width: '100px', render: (a) => U.badge(a.status === 'done' ? '已完成' : '待评审', a.status === 'done' ? 'ok' : 'warn') },
-                { title: '权重', width: '80px', class: 'num', render: (a) => a.weight },
+                { title: '作业（匿名）', width: '120px', render: (g) => h('span', { class: 'anon-tag' }, g.anon) },
+                {
+                  title: '作者', width: '150px',
+                  render: (g) => h('div', {}, h('b', {}, g.author_name),
+                    h('div', { class: 'small muted' }, g.author_class || '')),
+                },
+                { title: '题目', width: '190px', render: (g) => g.problem_title || ('#' + g.problem_id) },
+                {
+                  title: '评审者',
+                  render: (g) => h('div', { class: 'col', style: { gap: '4px' } },
+                    ...g.reviewers.map((r) => h('div', { class: 'row', style: { gap: '8px' } },
+                      h('span', {}, h('b', {}, r.reviewer_name)),
+                      h('span', { class: 'small muted' }, r.reviewer_class || ''),
+                      U.badge(r.status === 'done' ? '已评' : '待评', r.status === 'done' ? 'ok' : 'warn')))),
+                },
+                {
+                  title: '', width: '120px',
+                  render: (g) => h('button', {
+                    class: 'btn btn--soft btn--xs',
+                    onclick: () => openAdjustReviewers(selected, g, students, () => router.resolve()),
+                  }, '调整评审人'),
+                },
               ],
-              allocs.allocations.slice(0, 200), { dense: true })
+              groupAllocations(allocs.allocations).slice(0, 200),
+              { dense: true }),
+            h('details', { class: 'mt16' },
+              h('summary', { style: { cursor: 'pointer', fontSize: '13px', color: 'var(--brand)' } },
+                '查看分配关系图（作者 ↔ 评审者）'),
+              h('div', { class: 'mt12' },
+                C.bipartiteGraph(
+                  allocs.allocations.slice(0, 220).map((a) => ({ author: a.author_id, reviewer: a.reviewer_id })),
+                  { width: 900, height: 340, authorLabel: (x) => '作业#' + x, reviewerLabel: (x) => '评审者#' + x })))
           )
         : null
     );
@@ -520,7 +854,9 @@ export function renderReviewAdmin({ assignments, selected, allocs, results, anom
     return h('div', {}, ...results.map((r) =>
       h('div', { style: { marginBottom: '16px' } },
         U.card(
-          U.cardHead(r.problem_title + ' · 评分结果', { sub: `共 ${r.rows.length} 份提交` }),
+          U.cardHead(r.problem_title + ' · 评分结果', {
+            sub: `共 ${r.rows.length} 份提交 · 点「谁评的」可以看到每位评审者给的分与文字意见`,
+          }),
           U.table(
             [
               { title: '#', width: '48px', render: (_x, i) => i + 1 },
@@ -529,6 +865,13 @@ export function renderReviewAdmin({ assignments, selected, allocs, results, anom
               { title: '各评审原始分', render: (x) => h('div', { class: 'mono small' }, x.raw.map((v) => v.toFixed(0)).join(' / ')) },
               { title: '极差', width: '80px', class: 'num', render: (x) => (x.spread > 25 ? h('span', { class: 'tone-danger' }, x.spread) : x.spread) },
               { title: '评审数', width: '80px', class: 'num', render: (x) => x.n_reviews },
+              {
+                title: '', width: '86px',
+                render: (x) => h('button', {
+                  class: 'btn btn--plain btn--xs',
+                  onclick: () => openReviewDetail(x, r.problem_title),
+                }, '谁评的'),
+              },
             ],
             r.rows, { dense: true })
         ))))
@@ -546,8 +889,12 @@ export function renderReviewAdmin({ assignments, selected, allocs, results, anom
       U.card(
         U.cardHead('评审者偏差与可信度', { sub: '按 |bias| 降序排列' }),
         h('div', { class: 'grid grid--2' },
-          C.barChart(stats.slice(0, 16).map((s) => ({ label: s.name || ('#' + s.reviewer_id), value: Math.abs(s.bias) })), { width: 520, height: 240, tone: 'warn', unit: '' }),
-          C.barChart(stats.slice(0, 16).map((s) => ({ label: s.name || ('#' + s.reviewer_id), value: s.reliability })), { width: 520, height: 240, tone: 'brand', unit: '' })),
+          C.barChart(
+            stats.slice(0, 12).map((s) => ({ label: s.name || ('#' + s.reviewer_id), value: Math.abs(s.bias) })),
+            { width: 520, horizontal: true, height: 320, tone: 'warn', unit: '' }),
+          C.barChart(
+            stats.slice(0, 12).map((s) => ({ label: s.name || ('#' + s.reviewer_id), value: s.reliability })),
+            { width: 520, horizontal: true, height: 320, tone: 'brand', unit: '' })),
         U.table(
           [
             { title: '评审者', render: (s) => h('div', {}, h('b', {}, s.name), h('div', { class: 'small muted' }, '#' + s.reviewer_id)) },
@@ -615,6 +962,97 @@ export function renderReviewAdmin({ assignments, selected, allocs, results, anom
   );
 }
 
+/** 把逐条 allocation 合并成「谁（作者）的哪道题由哪些人评」 */
+function groupAllocations(rows) {
+  const map = new Map();
+  rows.forEach((a) => {
+    const key = `${a.problem_id}|${a.author_id}`;
+    if (!map.has(key)) {
+      map.set(key, {
+        problem_id: a.problem_id, problem_title: a.problem_title,
+        author_id: a.author_id, author_name: a.author_name, author_class: a.author_class,
+        anon: a.anon, reviewers: [],
+      });
+    }
+    map.get(key).reviewers.push({
+      reviewer_id: a.reviewer_id, reviewer_name: a.reviewer_name,
+      reviewer_class: a.reviewer_class, status: a.status,
+    });
+  });
+  return Array.from(map.values());
+}
+
+/** 教师人工调整某一份作业的评审人 */
+function openAdjustReviewers(assignmentId, group, students, refresh) {
+  const bodyBox = h('div');
+  const pick = h('select', { class: 'input' });
+  (students || []).forEach((s) => {
+    if (s.id === group.author_id) return;
+    const already = group.reviewers.some((r) => r.reviewer_id === s.id);
+    pick.appendChild(h('option', { value: s.id, disabled: already || null },
+      `${s.name}${s.class_name ? '（' + s.class_name + '）' : ''}${already ? ' · 已在名单' : ''}`));
+  });
+
+  const paint = () => {
+    clear(bodyBox).appendChild(h('div', {},
+      h('div', { class: 'row mb12', style: { gap: '8px', flexWrap: 'wrap' } },
+        U.badge(group.anon, 'neutral'),
+        U.badge(group.author_name, 'brand'),
+        U.badge(`当前 ${group.reviewers.length} 位评审者`, 'blue')),
+      h('div', { class: 'col', style: { gap: '8px' } },
+        ...group.reviewers.map((r) => h('div', { class: 'list-row' },
+          h('div', { class: 'list-row__main' },
+            h('div', { class: 'list-row__title' }, r.reviewer_name,
+              U.badge(r.status === 'done' ? '已完成评审' : '待评审', r.status === 'done' ? 'ok' : 'warn')),
+            h('div', { class: 'list-row__meta' }, h('span', {}, r.reviewer_class || ''))),
+          h('div', { class: 'list-row__side' },
+            r.status === 'done'
+              ? h('span', { class: 'small muted' }, '已评完，不能移除')
+              : U.btn('移除', {
+                  tone: 'plain', size: 'xs',
+                  onClick: async () => {
+                    const yes = await confirmDialog({
+                      title: '移除评审者',
+                      message: `确定把「${r.reviewer_name}」从这份作业的评审名单里移除吗？`,
+                      confirmText: '移除',
+                    });
+                    if (!yes) return;
+                    try {
+                      await api.post(`/api/assignments/${assignmentId}/allocation/adjust`, {
+                        problem_id: group.problem_id, author_id: group.author_id,
+                        remove_reviewer_id: r.reviewer_id,
+                      });
+                      ok('已移除，请记得重新确认发布');
+                      refresh();
+                    } catch (e) { fail(e.message); }
+                  },
+                })))),
+        group.reviewers.length ? null : U.empty('这位同学还没有评审者', '请在下面选一位加入。')),
+      h('div', { class: 'row mt16', style: { gap: '8px' } },
+        pick,
+        U.btn('加入评审', {
+          tone: 'primary', size: 'sm',
+          onClick: async () => {
+            if (!pick.value) return fail('请选择要加入的学生');
+            try {
+              await api.post(`/api/assignments/${assignmentId}/allocation/adjust`, {
+                problem_id: group.problem_id, author_id: group.author_id,
+                add_reviewer_id: Number(pick.value),
+              });
+              ok('已加入，请记得重新确认发布');
+              refresh();
+            } catch (e) { fail(e.message); }
+          },
+        })),
+      U.note('名单调整后这次作业的互评状态会回到「待确认」，需要你重新点「确认并发布」，学生才会看到变更。', 'warn')));
+  };
+  paint();
+  U.modal(`调整评审人 · ${group.anon}`, bodyBox, {
+    width: 640,
+    actions: (close) => [U.btn('关闭', { tone: 'ghost', onClick: close })],
+  });
+}
+
 function gini(values) {
   if (!values.length) return 0;
   const v = [...values].sort((a, b) => a - b);
@@ -657,23 +1095,123 @@ export function renderAnomalies({ assignments, data }) {
             { title: '状态', width: '100px', render: (a) => U.badge(
                 { open: '待复核', confirmed: '已确认', dismissed: '已排除', adjusted: '已修正' }[a.status] || a.status,
                 a.status === 'open' ? 'warn' : a.status === 'dismissed' ? 'neutral' : 'ok') },
-            { title: '', width: '150px', render: (a) => h('div', { class: 'row', style: { gap: '4px' } },
+            { title: '', width: '230px', render: (a) => h('div', { class: 'row', style: { gap: '4px' } },
+                U.btn('查看详情', { tone: 'ghost', size: 'xs', onClick: () => openAnomalyDetail(a) }),
                 U.btn('确认', { tone: 'soft', size: 'xs', onClick: () => handle(a, 'confirmed') }),
                 U.btn('排除', { tone: 'plain', size: 'xs', onClick: () => handle(a, 'dismissed') }),
-                U.btn('降权', { tone: 'ghost', size: 'xs', onClick: () => handle(a, 'adjusted', 0.3) })) },
+                U.btn('降权', { tone: 'ghost', size: 'xs', onClick: () => openAdjustWeight(a, paint) })) },
           ],
           rows, { dense: true, empty: '没有符合条件的异常记录' })
       )
     );
   };
   const handle = async (a, st, weight) => {
-    const note = st === 'dismissed' ? '教师复核后判定为正常' : st === 'adjusted' ? '教师复核后下调该评审者权重' : '教师复核确认异常';
+    // 确认/排除/降权都会影响该评审者后续的权重与聚合结果，先让教师二次确认
+    const meta = {
+      confirmed: {
+        title: '确认这条异常评审',
+        message: `确认后系统会记录「${a.reviewer_name || '#' + a.reviewer_id}」存在异常评分行为，`
+          + '该评审者在后续聚合中的权重会被下调，并保留处理痕迹。',
+        confirmText: '确认异常',
+      },
+      dismissed: {
+        title: '排除这条异常',
+        message: '排除表示经人工复核认为该评分正常，异常记录会被关闭，评审者的权重不受影响。',
+        confirmText: '排除异常',
+      },
+      adjusted: {
+        title: '下调评审者权重',
+        message: `将把「${a.reviewer_name || '#' + a.reviewer_id}」的权重调整为 ${weight}，`
+          + '其给出的分数在聚合时影响变小。',
+        confirmText: '调整权重',
+      },
+    }[st];
+    if (meta) {
+      const yes = await confirmDialog(meta);
+      if (!yes) return;
+    }
+    const note = st === 'dismissed' ? '教师复核后判定为正常'
+      : st === 'adjusted' ? `教师复核后把权重调整为 ${weight}` : '教师复核确认异常';
     try {
       await api.post(`/api/anomalies/${a.id}/handle`, { status: st, note, adjust_weight: weight });
       a.status = st;
-      ok(st === 'dismissed' ? '已标记为「已排除」' : st === 'adjusted' ? '已下调该评审者权重' : '已确认异常');
+      ok(st === 'dismissed' ? '已标记为「已排除」' : st === 'adjusted' ? '已调整该评审者权重' : '已确认异常');
       paint();
+      router.resolve();
     } catch (e) { fail(e.message); }
+  };
+
+  /** 查看这位评审者当时到底怎么评的：分数、文字意见、时长、被评对象 */
+  const openAnomalyDetail = (a) => {
+    const reviews = a.reviews || [];
+    U.drawer(`异常详情 · ${a.reviewer_name || '#' + a.reviewer_id}`, h('div', {},
+      h('div', { class: 'row mb16', style: { gap: '8px', flexWrap: 'wrap' } },
+        U.badge(a.level === 'high' ? '高风险' : a.level === 'medium' ? '中风险' : '低风险',
+          a.level === 'high' ? 'danger' : a.level === 'medium' ? 'warn' : 'blue'),
+        U.badge(ANOMALY_TYPE[a.type] || a.type, 'neutral'),
+        U.badge(a.status === 'open' ? '待复核' : '已处理', a.status === 'open' ? 'warn' : 'ok')),
+      U.card(U.cardHead('异常判定的依据'), h('div', {},
+        h('p', {}, h('b', {}, a.title)),
+        h('p', { class: 'muted' }, a.detail),
+        a.suggestion ? U.note('系统建议：' + a.suggestion) : null,
+        Object.keys(a.evidence || {}).length
+          ? U.kv(Object.entries(a.evidence).map(([k, v]) => [k, typeof v === 'object' ? JSON.stringify(v) : String(v)]))
+          : null)),
+      h('div', { class: 'mt16' },
+        U.card(
+          U.cardHead(`这位评审者的评审记录（最近 ${reviews.length} 条）`, {
+            sub: '分数明显偏离、或文字意见与分数不匹配，都可以作为人工复核的依据',
+          }),
+          reviews.length
+            ? h('div', { class: 'col', style: { gap: '10px' } }, ...reviews.map((r) =>
+                h('div', { class: 'sub-line' },
+                  h('div', { class: 'sub-line__head' },
+                    h('b', {}, r.problem_title || ('#' + r.problem_id)),
+                    U.badge('给分 ' + (r.total == null ? '—' : r.total), (r.total || 0) >= 90 ? 'warn' : 'brand'),
+                    r.flagged ? U.badge('已被标记', 'danger') : null),
+                  h('div', { class: 'sub-line__meta' },
+                    r.target_name ? h('span', {}, '被评：' + r.target_name) : null,
+                    r.assignment_title ? h('span', {}, r.assignment_title) : null,
+                    r.duration_sec ? h('span', {}, `用时 ${Math.round(r.duration_sec)} 秒`) : null,
+                    r.submitted_at ? h('span', {}, U.fmtDate(r.submitted_at)) : null),
+                  Object.keys(r.scores || {}).length
+                    ? h('div', { class: 'sub-line__meta' },
+                        ...Object.entries(r.scores).map(([k, v]) => h('span', {}, `${k} ${v}`)))
+                    : null,
+                  r.comment ? h('div', { class: 'conclusion mt8' }, r.comment) : null)))
+            : U.empty('没有找到这位评审者的评审记录', '')),
+        h('div', { class: 'row mt16', style: { gap: '8px' } },
+          U.btn('确认异常', { tone: 'soft', size: 'sm', onClick: () => handle(a, 'confirmed') }),
+          U.btn('排除', { tone: 'ghost', size: 'sm', onClick: () => handle(a, 'dismissed') }),
+          U.btn('手动下调权重', { tone: 'ghost', size: 'sm', onClick: () => openAdjustWeight(a, paint) })))
+    ), { width: 760 });
+  };
+
+  /** 降权比例由教师自己定，而不是固定 0.3 */
+  const openAdjustWeight = (a, done) => {
+    const input = h('input', { class: 'input', type: 'number', min: '0.05', max: '1', step: '0.05', value: '0.3' });
+    U.modal('下调评审者权重', h('div', { class: 'col', style: { gap: '12px' } },
+      U.field('权重比例（0.05 ~ 1）', input, {
+        hint: '1 = 保持原权重；0.3 = 该评审者的评分在聚合时只算 30% 的影响',
+      }),
+      U.note(`评审者：${a.reviewer_name || '#' + a.reviewer_id}　`
+        + `异常类型：${ANOMALY_TYPE[a.type] || a.type}`),
+      U.note('权重会写回该评审者的分配记录，重新执行「评分聚合」后生效（聚合方法选「可信度动态加权」时影响最明显）。', 'warn')
+    ), {
+      width: 560,
+      actions: (close) => [
+        U.btn('取消', { tone: 'ghost', onClick: close }),
+        U.btn('确认调整', {
+          tone: 'primary',
+          onClick: async () => {
+            const w = Number(input.value);
+            if (!(w > 0 && w <= 1)) return fail('权重需要在 0.05 ~ 1 之间');
+            close();
+            await handle(a, 'adjusted', w);
+          },
+        }),
+      ],
+    });
   };
   paint();
   const risk = (data.reviewer_risk || []).slice(0, 12);
@@ -693,7 +1231,9 @@ export function renderAnomalies({ assignments, data }) {
       ? U.card(
           U.cardHead('评审者风险汇总', { sub: '风险分 = Σ 异常权重（高 22 / 中 11 / 低 4），≥45 为高风险' }),
           h('div', { class: 'grid grid--2' },
-            C.barChart(risk.map((r) => ({ label: r.reviewer_name || ('#' + r.reviewer_id), value: r.risk })), { width: 520, height: 250, tone: 'danger', unit: '' }),
+            C.barChart(
+              risk.map((r) => ({ label: r.reviewer_name || ('#' + r.reviewer_id), value: r.risk })),
+              { width: 520, horizontal: true, height: Math.max(240, risk.length * 26 + 26), tone: 'danger', unit: '' }),
             U.table(
               [
                 { title: '评审者', render: (r) => h('div', {}, h('b', {}, r.reviewer_name), h('div', { class: 'small muted' }, r.class_name || '')) },
@@ -736,6 +1276,22 @@ export function renderSimilarity({ problems, data }) {
       sub: 'Winnowing 指纹 + 倒排索引 + 并查集聚类。',
     }),
     U.note('对变量改名、加注释、调格式几乎免疫；对深度重写灵敏度有限，需结合语法树或语义方法。', 'ok'),
+    h('div', { class: 'grid grid--2 mt12 mb16' },
+      h('div', { class: 'conclusion' },
+        h('b', {}, '相似度阈值是什么？'),
+        h('p', { class: 'mt8' },
+          '系统把每份代码切成固定长度的「指纹」（k-gram 的滚动哈希取窗口最小值），'
+          + '两份代码的相似度 = 它们共享的指纹数 ÷ 指纹并集大小，取值 0~100%。'
+          + '阈值就是「相似度超过多少才在下面列出来」。')),
+        h('p', { class: 'mt8' },
+          '推荐用法：阈值 0.75 以上基本可以认定是同一份代码改的；0.6~0.75 属于「值得看一眼」，'
+          + '可能是同学之间讨论后写法趋同；低于 0.6 误报会明显变多。'),
+      h('div', { class: 'conclusion' },
+        h('b', {}, '看到高相似之后该怎么办？'),
+        h('p', { class: 'mt8' },
+          '相似度只是线索，不能直接判定抄袭。建议结合：提交时间是否接近、'
+          + '变量命名习惯是否一致、是否同时出现同样的非必要写法（例如同一个多余的循环）。'
+          + '必要时找两位同学口述思路，再决定是否按学术规范处理。'))),
     h('div', { class: 'filterbar mt12 mb16' },
       U.select([{ value: '', label: '全部题目' }, ...problems.map((p) => ({ value: p.id, label: p.title }))],
         { value: router.currentRoute().query.problem_id || '', onchange: (e) => router.navigate('/teacher/similarity?' + new URLSearchParams({ ...router.currentRoute().query, problem_id: e.target.value })) }),

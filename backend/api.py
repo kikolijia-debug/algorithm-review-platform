@@ -195,7 +195,8 @@ def api_me(ctx):
         (ctx["user"]["id"],),
     )
     peer_pending = db.q1(
-        "SELECT COUNT(*) c FROM allocations WHERE reviewer_id=? AND status='pending'",
+        "SELECT COUNT(*) c FROM allocations al JOIN assignments a ON a.id=al.assignment_id "
+        "WHERE al.reviewer_id=? AND al.status='pending' AND a.allocation_status='confirmed'",
         (ctx["user"]["id"],),
     )["c"]
     return ok({"user": public_user(dict(u)), "courses": courses, "peer_pending": peer_pending})
@@ -532,18 +533,20 @@ def api_assignments(ctx):
             "WHERE assignment_id=? GROUP BY user_id, problem_id)", (a["id"],))
         a["avg_score"] = round(avg["v"], 1) if avg and avg["v"] is not None else None
         if a["peer_review"]:
+            confirmed = (a.get("allocation_status") or "confirmed") == "confirmed"
             a["my_review_pending"] = db.q1(
                 "SELECT COUNT(*) c FROM allocations WHERE assignment_id=? AND reviewer_id=? "
                 "AND status='pending'", (a["id"], u["id"]))["c"]
             a["my_review_done"] = db.q1(
                 "SELECT COUNT(*) c FROM allocations WHERE assignment_id=? AND reviewer_id=? "
                 "AND status='done'", (a["id"], u["id"]))["c"]
-            a["pending_reviews"] = db.q1(
+            a["pending_reviews"] = 0 if not confirmed else db.q1(
                 "SELECT COUNT(*) c FROM allocations WHERE assignment_id=? AND status='pending'",
                 (a["id"],))["c"]
             a["review_total"] = db.q1(
                 "SELECT COUNT(*) c FROM allocations WHERE assignment_id=?", (a["id"],))["c"]
             a["review_done"] = a["review_total"] - a["pending_reviews"]
+            a["need_confirm"] = not confirmed and a["review_total"] > 0
         due = parse_dt(a["due_at"])
         a["overdue"] = bool(due and due < now)
     return ok(rows)
@@ -1032,8 +1035,109 @@ def api_allocate(ctx):
             "INSERT INTO experiments(name,params,result,elapsed_ms,created_at) VALUES(?,?,?,?,?)",
             ("allocate", db.jdumps({"assignment_id": aid, "problem_id": prob["id"], **b}),
              db.jdumps({"metrics": metrics, "stats": res.stats}), el, db.now()))
-    db.ex("UPDATE assignments SET status='reviewing' WHERE id=?", (aid,))
-    return ok({"report": report, "elapsed_ms": round((time.perf_counter() - t0) * 1000, 2)})
+    # 分配结果先进入「待教师确认」，教师确认后学生才看得到评审任务
+    db.ex("UPDATE assignments SET status='reviewing', allocation_status='draft' WHERE id=?", (aid,))
+    return ok({
+        "report": report,
+        "elapsed_ms": round((time.perf_counter() - t0) * 1000, 2),
+        "allocation_status": "draft",
+        "need_confirm": True,
+    })
+
+
+@route("POST", "/api/assignments/{id}/publish-allocation", "teacher")
+def api_publish_allocation(ctx):
+    """教师确认本轮互评分配后发布：学生端才出现评审任务。"""
+    aid = int(ctx["params"]["id"])
+    a = db.q1("SELECT * FROM assignments WHERE id=?", (aid,))
+    if not a:
+        return err(404, "作业不存在")
+    total = db.q1("SELECT COUNT(*) c FROM allocations WHERE assignment_id=?", (aid,))["c"]
+    if not total:
+        return err(400, "还没有分配结果，请先执行「重新分配」")
+    db.ex("UPDATE assignments SET allocation_status='confirmed', status='reviewing' WHERE id=?", (aid,))
+    db.ex(
+        "INSERT INTO events(user_id,course_id,type,payload,created_at) VALUES(?,?,?,?,?)",
+        (ctx["user"]["id"], a["course_id"], "allocation_published",
+         db.jdumps({"assignment_id": aid, "allocations": total}), db.now()),
+    )
+    return ok({"assignment_id": aid, "allocation_status": "confirmed", "allocations": total})
+
+
+@route("POST", "/api/assignments/{id}/allocation/adjust", "teacher")
+def api_adjust_allocation(ctx):
+    """人工调整某一份作业的评审人：换人 / 加人 / 减人。
+
+    请求体：
+        problem_id, author_id        必填，定位「谁的哪道题」
+        remove_reviewer_id           可选，先移除某个评审者
+        add_reviewer_id              可选，再加入新的评审者（禁止自评、禁止重复）
+    """
+    aid = int(ctx["params"]["id"])
+    b = ctx["body"] or {}
+    a = db.q1("SELECT * FROM assignments WHERE id=?", (aid,))
+    if not a:
+        return err(404, "作业不存在")
+    problem_id = b.get("problem_id")
+    author_id = b.get("author_id")
+    if not problem_id or not author_id:
+        return err(400, "缺少 problem_id / author_id")
+    problem_id, author_id = int(problem_id), int(author_id)
+
+    mine = uid_rows(
+        "SELECT * FROM allocations WHERE assignment_id=? AND problem_id=? AND author_id=? "
+        "ORDER BY id", (aid, problem_id, author_id))
+    if not mine:
+        return err(404, "找不到该作业的分配记录")
+
+    remove_id = b.get("remove_reviewer_id")
+    if remove_id:
+        rows = [r for r in mine if int(r["reviewer_id"]) == int(remove_id)]
+        if not rows:
+            return err(400, "该评审者不在当前分配里")
+        if any(r["status"] == "done" for r in rows):
+            return err(400, "该评审者已经完成评审，不能直接移除；请改用「重新分配」")
+        for r in rows:
+            db.ex("DELETE FROM allocations WHERE id=?", (r["id"],))
+
+    add_id = b.get("add_reviewer_id")
+    if add_id:
+        add_id = int(add_id)
+        if add_id == author_id:
+            return err(400, "不能把自己分配给自己评审")
+        member = db.q1(
+            "SELECT id FROM course_members WHERE course_id=? AND user_id=? AND role='student'",
+            (a["course_id"], add_id))
+        if not member:
+            return err(400, "该学生不在本课程中")
+        current = db.q1(
+            "SELECT id FROM allocations WHERE assignment_id=? AND problem_id=? AND author_id=? "
+            "AND reviewer_id=?", (aid, problem_id, author_id, add_id))
+        if current:
+            return err(400, "该评审者已经在名单里")
+        load = db.q1(
+            "SELECT COUNT(*) c FROM allocations WHERE assignment_id=? AND reviewer_id=?",
+            (aid, add_id))["c"]
+        if load >= int(a["max_load"] or 4):
+            return err(400, "该学生的工作量已达上限 %d 份" % int(a["max_load"] or 4))
+        db.ex(
+            "INSERT OR IGNORE INTO allocations(assignment_id,problem_id,author_id,reviewer_id,"
+            "status,round,weight,is_anomaly,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
+            (aid, problem_id, author_id, add_id, "pending", 1, 1.0, 0, db.now()))
+
+    rows = uid_rows(
+        "SELECT al.id, al.reviewer_id, u.name AS reviewer_name, u.class_name, al.status "
+        "FROM allocations al JOIN users u ON u.id=al.reviewer_id "
+        "WHERE al.assignment_id=? AND al.problem_id=? AND al.author_id=? ORDER BY al.id",
+        (aid, problem_id, author_id))
+    # 教师手工调整过分配 → 必须重新确认发布
+    db.ex("UPDATE assignments SET allocation_status='draft' WHERE id=?", (aid,))
+    return ok({
+        "assignment_id": aid, "problem_id": problem_id, "author_id": author_id,
+        "reviewers": rows, "count": len(rows),
+        # 只要教师动了分配，就需要重新确认后发布
+        "allocation_status": "draft",
+    })
 
 
 @route("GET", "/api/assignments/{id}/allocations", "teacher")
@@ -1067,10 +1171,12 @@ def api_my_reviews(ctx):
     rows = uid_rows(
         "SELECT al.id AS allocation_id, al.assignment_id, al.problem_id, al.status, al.weight, "
         "al.author_id, p.title AS problem_title, p.type AS problem_type, p.rubric, "
-        "a.title AS assignment_title, a.review_due_at, a.reviews_per_submission "
+        "a.title AS assignment_title, a.review_due_at, a.reviews_per_submission, "
+        "a.allocation_status "
         "FROM allocations al JOIN problems p ON p.id=al.problem_id "
         "JOIN assignments a ON a.id=al.assignment_id "
-        "WHERE al.reviewer_id=? ORDER BY al.status, al.assignment_id DESC, al.id", (uid,))
+        "WHERE al.reviewer_id=? AND a.allocation_status='confirmed' "
+        "ORDER BY al.status, al.assignment_id DESC, al.id", (uid,))
     for r in rows:
         r["rubric"] = [x for x in jload(r["rubric"], []) if isinstance(x, dict) and "key" in x]
         r["author"] = anon_label(r["author_id"])
@@ -1085,7 +1191,7 @@ def api_my_reviews(ctx):
 def api_review_task(ctx):
     al = db.q1(
         "SELECT al.*,p.title AS problem_title,p.statement,p.rubric,p.type AS problem_type,"
-        "a.title AS assignment_title,a.review_due_at FROM allocations al "
+        "a.title AS assignment_title,a.review_due_at,a.allocation_status FROM allocations al "
         "JOIN problems p ON p.id=al.problem_id JOIN assignments a ON a.id=al.assignment_id "
         "WHERE al.id=?", (ctx["params"]["allocation_id"],))
     if not al:
@@ -1093,6 +1199,9 @@ def api_review_task(ctx):
     teacher = is_teacher(ctx["user"])
     if al["reviewer_id"] != ctx["user"]["id"] and not teacher:
         return err(403, "这不是分配给你的评审任务")
+    # 教师确认发布前，学生看不到评审对象
+    if al["allocation_status"] != "confirmed" and not teacher:
+        return err(403, "教师尚未确认本轮互评分配，请稍后再试")
     rubric = jload(al["rubric"], [])
     sections = []
     if rubric and isinstance(rubric[0], dict) and "sections" in rubric[0]:
@@ -1278,11 +1387,31 @@ def api_review_results(ctx):
         for uid in sorted(em["scores"]):
             u = db.q1("SELECT name,class_name,student_no FROM users WHERE id=?", (uid,)) or {}
             mine = [r["total"] for r in reviews if r["author_id"] == uid]
+            # 谁评了这份作业、分别给了多少分、写了什么意见——教师审核时要逐条看
+            details = []
+            for r in reviews:
+                if r["author_id"] != uid:
+                    continue
+                details.append({
+                    "reviewer_id": r["reviewer_id"],
+                    "reviewer_name": dict(db.q1(
+                        "SELECT name FROM users WHERE id=?", (r["reviewer_id"],)) or {}).get("name"),
+                    "reviewer_class": dict(db.q1(
+                        "SELECT class_name FROM users WHERE id=?", (r["reviewer_id"],)) or {}).get("class_name"),
+                    "total": round(r["total"], 2) if r["total"] is not None else None,
+                    "scores": jload(r["scores"], {}),
+                    "comment": r["comment"],
+                    "duration_sec": r["duration_sec"],
+                    "submitted_at": r["submitted_at"],
+                    "flagged": r["flagged"],
+                })
+            details.sort(key=lambda d: -(d["total"] or 0))
             rows.append({
                 "user_id": uid, "name": u["name"], "class_name": u["class_name"],
                 "student_no": u["student_no"], "score": round(em["scores"][uid], 2),
                 "raw": mine, "n_reviews": len(mine),
                 "spread": round((max(mine) - min(mine)) if mine else 0, 2),
+                "details": details,
             })
         rows.sort(key=lambda r: -r["score"])
         out.append({

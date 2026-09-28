@@ -133,6 +133,7 @@ function topbar() {
     '/teacher/classes': ['教学', '班级管理'],
     '/teacher/analytics': ['学习分析', '学习过程分析'],
     '/teacher/ability': ['学习分析', '能力与难度估计'],
+    '/teacher/student': ['学习分析', '学生报告'],
     '/teacher/reviews': ['分析与治理', '评审管理'],
     '/teacher/anomalies': ['分析与治理', '异常评审检测'],
     '/teacher/similarity': ['分析与治理', '代码相似度检测'],
@@ -157,8 +158,8 @@ function topbar() {
     backTarget(p)
       ? h('button', {
           class: 'btn btn--ghost btn--sm',
-          title: '返回上一级',
-          onclick: () => router.navigate(backTarget(p)),
+          title: '返回上一页',
+          onclick: () => router.back(backTarget(p)),
         }, '← 返回' + (BACK_LABEL[backTarget(p)] || ''))
       : null,
     h('div', { class: 'topbar__crumbs' }, ...crumbs),
@@ -239,28 +240,46 @@ export function currentPath() {
 
 /** 页面层级表：子页面 → 它的上一级，用于顶栏「返回」与面包屑跳转。 */
 const BACK_MAP = [
-  [/^\/problem\//, '/problems'],
+  [/^\/problem\//, null],           // 由浏览轨迹决定（题库 / 作业 / 学情分析都能进来）
   [/^\/student\/submissions\/.+/, '/student/submissions'],
   [/^\/student\/reviews\/.+/, '/student/reviews'],
   [/^\/student\/assignment\/.+/, '/student'],
   [/^\/teacher\/assignment\/.+/, '/teacher/assignments'],
+  [/^\/teacher\/student\/.+/, '/teacher/analytics'],
+  [/^\/materials$/, '/teacher'],
   [/^\/student\/(submissions|reviews|subjective|report)$/, '/student'],
   [/^\/teacher\/(work|students|assignments|submissions|classes|analytics|ability|reviews|anomalies|similarity|experiments)$/, '/teacher'],
 ];
 
-/** 返回目标；顶级页面返回 null（不显示返回按钮）。 */
+/**
+ * 返回目标：优先回到「上一个访问过的页面」（浏览轨迹），
+ * 没有轨迹时（例如直接打开链接）再按页面层级退到上级。
+ */
 export function backTarget(path) {
-  for (const [rx, to] of BACK_MAP) if (rx.test(path)) return to;
-  return null;
+  let fallback = null;
+  for (const [rx, to] of BACK_MAP) {
+    if (rx.test(path)) { fallback = to; break; }
+  }
+  const prev = router.previousPath(null);
+  // 登录页/首页不算「上一页」，否则每个顶级页面都会多出一个返回按钮
+  if (prev && prev !== path && prev !== '/login' && prev !== '/') return prev;
+  return fallback;
 }
 
 const BACK_LABEL = {
+  '/': '首页',
   '/problems': '题库',
+  '/materials': '课程资源',
   '/student': '学习动态',
   '/teacher': '教学看板',
+  '/teacher/work': '作业与题库',
+  '/teacher/students': '班级与学生',
+  '/teacher/analytics': '学情分析',
+  '/teacher/reviews': '评审管理',
+  '/teacher/experiments': '算法实验台',
+  '/teacher/assignments': '作业管理',
   '/student/submissions': '我的提交',
   '/student/reviews': '互评中心',
-  '/teacher/assignments': '作业管理',
 };
 
 /** 「演示数据」说明弹窗：把真实与模拟的部分讲清楚。 */
@@ -417,6 +436,7 @@ function registerRoutes() {
   P('/teacher/submissions', T.loadTeacherSubmissions, T.renderTeacherSubmissions);
   P('/teacher/classes', TC.loadClasses, TC.renderClasses);
   P('/teacher/ability', TI.loadAbility, TI.renderAbility);
+  P('/teacher/student/:id', TI.loadStudentReport, TI.renderStudentReport);
   P('/teacher/anomalies', TI.loadAnomalies, TI.renderAnomalies);
   P('/teacher/similarity', TI.loadSimilarity, TI.renderSimilarity);
   P('/teacher/experiments', TI.loadExperiments, TI.renderExperiments);

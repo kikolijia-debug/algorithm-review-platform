@@ -59,6 +59,131 @@ def _first_course(ctx):
 # ---------------------------------------------------------------------------
 
 
+@route("GET", "/api/assignments/{id}/progress", "teacher")
+def api_assignment_progress(ctx):
+    """单个作业里每位学生的完成情况。
+
+    教师进入某次作业后需要一眼看到：谁交了、交了几次、过没过、拿了几分、
+    主观题答了没有、互评拿了多少分，并且能点开看具体的提交内容。
+    """
+    aid = int(ctx["params"]["id"])
+    a = db.q1("SELECT * FROM assignments WHERE id=?", (aid,))
+    if not a:
+        return err(404, "作业不存在")
+    problems = uid_rows(
+        "SELECT p.id,p.title,p.type,p.difficulty,p.score FROM assignment_problems ap "
+        "JOIN problems p ON p.id=ap.problem_id WHERE ap.assignment_id=? ORDER BY ap.order_index",
+        (aid,))
+    students = uid_rows(
+        "SELECT u.id,u.name,u.student_no,u.class_name FROM course_members m "
+        "JOIN users u ON u.id=m.user_id WHERE m.course_id=? AND m.role='student' "
+        "ORDER BY u.class_name, u.student_no, u.id", (a["course_id"],))
+
+    # 编程题：每人每题的最高分 / 提交次数 / 是否通过 / 最近一次提交
+    prog = uid_rows(
+        "SELECT s.user_id, s.problem_id, COUNT(*) tries, MAX(s.score) best, "
+        "MAX(CASE WHEN s.verdict='Accepted' THEN 1 ELSE 0 END) solved, "
+        "MAX(s.id) last_id FROM submissions s WHERE s.assignment_id=? "
+        "GROUP BY s.user_id, s.problem_id", (aid,))
+    # 没有挂作业的历史提交（教师手动组织的代码互评）按题目兜底
+    prog_all = uid_rows(
+        "SELECT s.user_id, s.problem_id, COUNT(*) tries, MAX(s.score) best, "
+        "MAX(CASE WHEN s.verdict='Accepted' THEN 1 ELSE 0 END) solved, MAX(s.id) last_id "
+        "FROM submissions s GROUP BY s.user_id, s.problem_id")
+    last_rows = {r["id"]: r for r in uid_rows(
+        "SELECT id,verdict,language,submitted_at,time_ms,memory_kb FROM submissions "
+        "WHERE assignment_id=?", (aid,))}
+    if not last_rows:
+        last_rows = {r["id"]: r for r in uid_rows(
+            "SELECT id,verdict,language,submitted_at,time_ms,memory_kb FROM submissions")}
+    subj = uid_rows(
+        "SELECT ss.user_id, ss.problem_id, ss.status, ss.final_score, ss.submitted_at, ss.methods "
+        "FROM subjective_submissions ss WHERE ss.assignment_id=?", (aid,))
+    reviews = uid_rows(
+        "SELECT rv.author_id, rv.problem_id, rv.total FROM reviews rv "
+        "WHERE rv.assignment_id=?", (aid,))
+
+    prog_map = {}
+    for r in prog:
+        prog_map[(r["user_id"], r["problem_id"])] = r
+    for r in prog_all:
+        prog_map.setdefault((r["user_id"], r["problem_id"]), r)
+    subj_map = {(r["user_id"], r["problem_id"]): r for r in subj}
+    review_sum, review_cnt = {}, {}
+    for r in reviews:
+        key = (r["author_id"], r["problem_id"])
+        review_sum[key] = review_sum.get(key, 0.0) + (r["total"] or 0)
+        review_cnt[key] = review_cnt.get(key, 0) + 1
+
+    full = sum(p["score"] or 100 for p in problems)
+    rows = []
+    for st in students:
+        cells, tries, solved, score = {}, 0, 0, 0.0
+        for p in problems:
+            key = (st["id"], p["id"])
+            pr, sj = prog_map.get(key), subj_map.get(key)
+            cell = {"problem_id": p["id"], "type": p["type"], "tries": 0, "solved": False,
+                    "best": None, "verdict": None, "submitted": False,
+                    "submission_id": None, "subjective_id": None, "review_score": None}
+            if pr:
+                cell.update({"tries": pr["tries"], "solved": bool(pr["solved"]),
+                             "best": pr["best"], "submitted": True,
+                             "submission_id": pr["last_id"]})
+                last = last_rows.get(pr["last_id"]) or {}
+                cell["verdict"] = last.get("verdict")
+                cell["language"] = last.get("language")
+                cell["time_ms"] = last.get("time_ms")
+                cell["memory_kb"] = last.get("memory_kb")
+                cell["submitted_at"] = last.get("submitted_at")
+                tries += pr["tries"]
+                solved += 1 if pr["solved"] else 0
+                score += pr["best"] or 0
+            if sj:
+                cell.update({"submitted": True, "subjective_id": sj["problem_id"],
+                             "subjective_status": sj["status"],
+                             "review_score": sj["final_score"],
+                             "submitted_at": cell.get("submitted_at") or sj["submitted_at"]})
+                if not pr:
+                    tries += 1
+                    score += sj["final_score"] or 0
+            if review_cnt.get(key):
+                cell["review_score"] = round(review_sum[key] / review_cnt[key], 1)
+                cell["review_count"] = review_cnt[key]
+            cells[str(p["id"])] = cell
+        rows.append({
+            "user_id": st["id"], "name": st["name"], "student_no": st["student_no"],
+            "class_name": st["class_name"], "cells": cells,
+            "submitted_problems": sum(1 for c in cells.values() if c["submitted"]),
+            "solved_problems": solved, "tries": tries, "score": round(score, 1),
+            "score_rate": round(score / full, 4) if full else 0,
+        })
+    rows.sort(key=lambda r: (-r["score"], r["name"]))
+    for i, r in enumerate(rows):
+        r["rank"] = i + 1
+    return ok({
+        "assignment": {
+            "id": a["id"], "title": a["title"], "description": a["description"],
+            "type": a["type"], "peer_review": a["peer_review"], "status": a["status"],
+            "allocation_status": (a["allocation_status"] if "allocation_status" in a.keys()
+                                  else "confirmed") or "confirmed",
+            "due_at": a["due_at"], "review_due_at": a["review_due_at"],
+            "reviews_per_submission": a["reviews_per_submission"],
+            "max_load": a["max_load"], "aggregation_method": a["aggregation_method"],
+        },
+        "problems": problems,
+        "students": rows,
+        "full_score": full,
+        "stats": {
+            "students": len(rows),
+            "submitted_all": sum(1 for r in rows if r["submitted_problems"] == len(problems)),
+            "none": sum(1 for r in rows if r["submitted_problems"] == 0),
+            "passed_all": sum(1 for r in rows if r["solved_problems"] == len(
+                [p for p in problems if p["type"] == "programming"])),
+            "avg_score": round(sum(r["score"] for r in rows) / len(rows), 1) if rows else 0,
+        },
+    })
+
+
 @route("GET", "/api/analytics/class")
 def api_analytics_class(ctx):
     course_id = _first_course(ctx)
@@ -110,6 +235,7 @@ def api_analytics_class(ctx):
         prob_rows.append({
             "id": p["id"], "title": p["title"], "type": p["type"],
             "difficulty": p["difficulty"], "topics": jload(p["topics"], []),
+            "chapter": p["chapter"], "score": p["score"],
             "students": n, "pass_rate": round(sum(1 for r in st if r["ok"]) / n, 4) if n else 0,
             "ac_count": sum(1 for r in st if r["ok"]),
             "avg_score": round(sum((r["best"] or 0) for r in st) / n, 2) if n else 0,
@@ -119,11 +245,40 @@ def api_analytics_class(ctx):
             "max_time_ms": max([r["tmax"] or 0 for r in st] or [0]),
             "zero_submit": students - n,
         })
-    per_student = uid_rows(
-        "SELECT s.user_id, SUM(s.score) total, COUNT(*) c, "
-        "SUM(CASE WHEN s.verdict='Accepted' THEN 1 ELSE 0 END) ac "
+    # 累计得分口径：每道题取该生最高分后求和（同一题反复提交不会刷高分数），
+    # 主观题取互评聚合后的最终得分。满分 = 纳入统计的题目数 × 每题满分。
+    prog = uid_rows(
+        "SELECT s.user_id, s.problem_id, MAX(s.score) best, COUNT(*) tries, "
+        "MAX(CASE WHEN s.verdict='Accepted' THEN 1 ELSE 0 END) ac "
         "FROM submissions s JOIN problems p ON p.id=s.problem_id " + where
-        + " GROUP BY s.user_id", args)
+        + " GROUP BY s.user_id, s.problem_id", args)
+    subj_where = "WHERE p.course_id=?"
+    subj_args = [course_id]
+    if assignment_id:
+        subj_where += " AND ss.assignment_id=?"
+        subj_args.append(assignment_id)
+    subj = uid_rows(
+        "SELECT ss.user_id, ss.problem_id, MAX(COALESCE(ss.final_score,0)) best, "
+        "MAX(CASE WHEN ss.status='done' THEN 1 ELSE 0 END) ac "
+        "FROM subjective_submissions ss JOIN problems p ON p.id=ss.problem_id "
+        + subj_where + " GROUP BY ss.user_id, ss.problem_id", subj_args)
+    per_student = {}
+    for r in prog:
+        acc = per_student.setdefault(r["user_id"], {"total": 0.0, "c": 0, "ac": 0})
+        acc["total"] += r["best"] or 0
+        acc["c"] += r["tries"]
+        acc["ac"] += r["ac"]
+    for r in subj:
+        acc = per_student.setdefault(r["user_id"], {"total": 0.0, "c": 0, "ac": 0})
+        acc["total"] += r["best"] or 0
+        acc["c"] += 1
+        acc["ac"] += r["ac"]
+    per_student = [{"user_id": k, **v} for k, v in per_student.items()]
+    scored_problems = db.q1(
+        "SELECT COUNT(*) c, COALESCE(SUM(score),0) s FROM problems " + (
+            "WHERE course_id=?" if not assignment_id else
+            "WHERE id IN (SELECT problem_id FROM assignment_problems WHERE assignment_id=?)"),
+        ([course_id] if not assignment_id else [assignment_id])) or {"c": 0, "s": 0}
     scores = [r["total"] or 0 for r in per_student]
     users = {u["id"]: u for u in uid_rows("SELECT id,name,class_name FROM users")}
     ranking = sorted(
@@ -134,7 +289,8 @@ def api_analytics_class(ctx):
     for i, r in enumerate(ranking):
         r["rank"] = i + 1
     errs = uid_rows(
-        "SELECT s.verdict, p.title, COUNT(*) c FROM submissions s "
+        "SELECT s.verdict, p.title, p.id AS problem_id, p.type AS problem_type, COUNT(*) c "
+        "FROM submissions s "
         "JOIN problems p ON p.id=s.problem_id " + where
         + " AND s.verdict<>'Accepted' GROUP BY s.verdict,p.title ORDER BY c DESC LIMIT 15", args)
     return ok({
@@ -149,6 +305,14 @@ def api_analytics_class(ctx):
         "problems": prob_rows,
         "score_distribution": _hist(scores, 10),
         "score_stats": _stats(scores),
+        "score_rule": {
+            "formula": "累计得分 = Σ 每道题的最高分（主观题取互评聚合后的最终得分）",
+            "full_score": int(scored_problems["s"] or 0),
+            "problem_count": int(scored_problems["c"] or 0),
+            "per_problem": 100,
+            "note": "同一道题多次提交只计最高分，因此反复提交不会把分数刷高；"
+                    "统计范围：" + ("本次作业包含的题目" if assignment_id else "本课程全部题目"),
+        },
         "ranking": ranking,
         "error_hotspots": errs,
     })
@@ -160,6 +324,12 @@ def api_analytics_problem(ctx):
     p = db.q1("SELECT * FROM problems WHERE id=?", (pid,))
     if not p:
         return err(404, "题目不存在")
+    # 该课程的全部学生（用来回答「谁没提交」）
+    all_students = uid_rows(
+        "SELECT u.id, u.name, u.student_no, u.class_name FROM course_members m "
+        "JOIN users u ON u.id=m.user_id WHERE m.course_id=? AND m.role='student' "
+        "ORDER BY u.class_name, u.student_no, u.id",
+        (p["course_id"],))
     subs = uid_rows(
         "SELECT s.*,u.name AS user_name,u.class_name FROM submissions s "
         "JOIN users u ON u.id=s.user_id WHERE s.problem_id=? ORDER BY s.id", (pid,))
@@ -187,6 +357,31 @@ def api_analytics_problem(ctx):
             "solved": any(r["verdict"] == "Accepted" for r in rows),
         })
     users.sort(key=lambda r: (-(r["best"] or 0), r["tries"]))
+    # 每位学生的逐次提交（谁提交了几次、每次什么判定），供教师点开查看
+    detail = {}
+    for uid, rows in by_student.items():
+        detail[uid] = [
+            {
+                "id": r["id"], "verdict": r["verdict"], "score": r["score"],
+                "time_ms": r["time_ms"], "memory_kb": r["memory_kb"],
+                "language": r["language"], "submitted_at": r["submitted_at"],
+                "attempt_no": r["attempt_no"],
+            }
+            for r in sorted(rows, key=lambda x: x["id"])
+        ]
+    submitted_ids = set(by_student)
+    not_submitted = [s for s in all_students if s["id"] not in submitted_ids]
+    # 主观题：谁交了、谁没交
+    if p["type"] != "programming":
+        subj_rows = uid_rows(
+            "SELECT ss.user_id, ss.status, ss.final_score, ss.submitted_at "
+            "FROM subjective_submissions ss JOIN assignments a ON a.id=ss.assignment_id "
+            "WHERE ss.problem_id=? ORDER BY ss.id", (pid,))
+        for r in subj_rows:
+            detail.setdefault(r["user_id"], []).append(
+                {"id": None, "verdict": "已提交" if r["status"] != "done" else "已完成评审",
+                 "score": r["final_score"], "time_ms": 0, "memory_kb": 0,
+                 "language": "text", "submitted_at": r["submitted_at"], "attempt_no": 1})
     total_students = db.q1(
         "SELECT COUNT(*) c FROM course_members WHERE course_id=? AND role='student'",
         (p["course_id"],))["c"]
@@ -194,7 +389,8 @@ def api_analytics_problem(ctx):
         "problem": {
             "id": p["id"], "title": p["title"], "type": p["type"], "difficulty": p["difficulty"],
             "topics": jload(p["topics"], []), "time_limit_ms": p["time_limit_ms"],
-            "memory_limit_mb": p["memory_limit_mb"],
+            "memory_limit_mb": p["memory_limit_mb"], "score": p["score"],
+            "chapter": p["chapter"],
         },
         "verdicts": verdicts,
         "attempts_hist": _hist([r["tries"] for r in users], 8),
@@ -208,6 +404,8 @@ def api_analytics_problem(ctx):
         "time_hist": _hist(times, 12),
         "submissions": subs,
         "users": users,
+        "detail": detail,
+        "not_submitted": not_submitted,
         "students_total": total_students,
         "pass_rate": round(sum(1 for r in users if r["solved"]) / total_students, 4)
         if total_students else 0,
@@ -404,6 +602,22 @@ def api_anomalies(ctx):
     rows = uid_rows(sql, args)
     for r in rows:
         r["evidence"] = jload(r["evidence"], {})
+        # 教师复核时要直接看到「这个人当时怎么评的」：分数、文字意见、时长、对象
+        r["reviews"] = uid_rows(
+            "SELECT rv.id, rv.total, rv.scores, rv.comment, rv.duration_sec, rv.submitted_at, "
+            "rv.flagged, rv.flag_reason, rv.assignment_id, rv.problem_id, "
+            "p.title AS problem_title, a.title AS assignment_title, "
+            "au.name AS target_name, au.class_name AS target_class "
+            "FROM reviews rv LEFT JOIN problems p ON p.id=rv.problem_id "
+            "LEFT JOIN assignments a ON a.id=rv.assignment_id "
+            "LEFT JOIN users au ON au.id=rv.author_id "
+            "WHERE rv.reviewer_id=? "
+            + ("AND rv.assignment_id=? " if r["assignment_id"] else "")
+            + "ORDER BY rv.id DESC LIMIT 20",
+            ((r["reviewer_id"], r["assignment_id"]) if r["assignment_id"] else (r["reviewer_id"],)),
+        )
+        for rv in r["reviews"]:
+            rv["scores"] = jload(rv["scores"], {})
     weights = {"high": 22, "medium": 11, "low": 4}
     stats = {}
     for r in rows:

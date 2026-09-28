@@ -130,6 +130,8 @@ CREATE TABLE IF NOT EXISTS assignments (
     params                TEXT DEFAULT '{}',
     status                TEXT DEFAULT 'draft',   -- draft | published | reviewing | closed
     peer_review           INTEGER DEFAULT 0,
+    -- 互评分配状态：draft=已分配待教师确认，confirmed=已发布（学生可见评审任务）
+    allocation_status     TEXT DEFAULT 'confirmed',
     created_by            INTEGER,
     created_at            TEXT NOT NULL
 );
@@ -364,6 +366,12 @@ def migrate(conn: sqlite3.Connection) -> None:
     prob_cols = [r["name"] for r in conn.execute("PRAGMA table_info(problems)")]
     if "chapter" not in prob_cols:
         conn.execute("ALTER TABLE problems ADD COLUMN chapter TEXT")
+        conn.commit()
+
+    # 4. 互评分配需要「教师确认后发布」，给作业加分配状态列
+    asg_cols = [r["name"] for r in conn.execute("PRAGMA table_info(assignments)")]
+    if "allocation_status" not in asg_cols:
+        conn.execute("ALTER TABLE assignments ADD COLUMN allocation_status TEXT DEFAULT 'confirmed'")
         conn.commit()
 
     # 仅在 classes 表为空时反向补齐，避免覆盖教师后来手工调整的结果
