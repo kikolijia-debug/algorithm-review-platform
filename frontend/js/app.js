@@ -383,7 +383,8 @@ function guard(ctx) {
     router.navigate('/login');
     return false;
   }
-  if (state.token && isPublic && ctx.path === '/login') {
+  // 已登录时访问登录/注册页，直接送去对应工作台（否则页面会停在加载态）
+  if (state.token && isPublic && (ctx.path === '/login' || ctx.path === '/register')) {
     router.navigate(isTeacher() ? '/teacher' : '/student');
     return false;
   }
@@ -400,7 +401,6 @@ function registerRoutes() {
     clear(app).appendChild(renderLogin());
   });
   router.register('/register', async () => {
-    if (state.token) return;               // 已登录就不用再注册
     const app = document.getElementById('app');
     clear(app).appendChild(renderRegister());
   });
