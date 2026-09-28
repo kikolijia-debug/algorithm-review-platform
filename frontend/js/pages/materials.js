@@ -12,6 +12,9 @@ import * as router from '../core/router.js';
 import { ok, fail, confirmDialog } from '../core/toast.js';
 import * as U from '../core/ui.js';
 
+/** 课件是静态资源，子路径部署（GitHub Pages）时也要能正确打开 */
+const fileUrl = (m) => api.assetUrl(m.url);
+
 export async function loadMaterials(ctx) {
   const courseId = (ctx && ctx.query && ctx.query.course_id) || state.courseId || undefined;
   const data = await api.get('/api/materials', courseId ? { course_id: courseId } : {});
@@ -92,7 +95,7 @@ function chapterCard(group, teacher, chapters, refresh) {
             'div',
             { class: 'list-row__main' },
             h('div', { class: 'list-row__title' },
-              h('a', { href: m.url, target: '_blank', rel: 'noopener' }, m.title),
+              h('a', { href: fileUrl(m), target: '_blank', rel: 'noopener' }, m.title),
               U.badge('PDF', 'soft')),
             h('div', { class: 'list-row__meta' },
               h('span', {}, `${m.pages || '—'} 页`),
@@ -102,8 +105,8 @@ function chapterCard(group, teacher, chapters, refresh) {
           h(
             'div',
             { class: 'list-row__side row', style: { gap: '6px' } },
-            h('a', { class: 'btn btn--soft btn--xs', href: m.url, target: '_blank', rel: 'noopener' }, '打开'),
-            h('a', { class: 'btn btn--plain btn--xs', href: m.url, download: m.filename }, '下载'),
+            h('a', { class: 'btn btn--soft btn--xs', href: fileUrl(m), target: '_blank', rel: 'noopener' }, '打开'),
+            h('a', { class: 'btn btn--plain btn--xs', href: fileUrl(m), download: m.filename }, '下载'),
             teacher
               ? U.btn('编辑', { tone: 'plain', size: 'xs', onClick: () => openEdit(m, chapters, refresh) })
               : null,

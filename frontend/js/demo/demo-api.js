@@ -949,6 +949,13 @@ function studentDashboard() {
 /* ---------------------------------------------------------- 写操作 */
 
 function me() {
+  // 数据集重新导出后，localStorage 里的旧会话可能还带着上一版的姓名，
+  // 这里按角色/用户名重新对齐一次，避免演示站显示过期信息。
+  if (session) {
+    const all = [...(DS.teachers || []), ...(DS.students || [])];
+    const fresh = all.find((t) => t.id === session.id);
+    if (fresh) session = { ...session, ...fresh, role: session.role };
+  }
   return {
     user: session,
     courses: [{ ...DS.course, member_role: session.role }],

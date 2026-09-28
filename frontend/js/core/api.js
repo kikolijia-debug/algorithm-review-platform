@@ -64,6 +64,19 @@ export const post = (path, body) => api(path, { method: 'POST', body });
 export const put = (path, body) => api(path, { method: 'PUT', body });
 export const del = (path) => api(path, { method: 'DELETE' });
 
+/**
+ * 静态资源的可访问地址。
+ *
+ * 后端返回的是站根路径（例如 `/courseware/ch05.pdf`），但站点可能部署在子路径下
+ * （GitHub Pages 的 `/algorithm-review-platform/`），这里统一补上前缀。
+ */
+export function assetUrl(path) {
+  if (!path) return path;
+  if (/^https?:\/\//i.test(path)) return path;
+  const base = BASE || '';
+  return base + '/' + String(path).replace(/^\//, '');
+}
+
 /** 探测后端是否可用，用于决定是否进入演示模式 */
 export async function probeBackend() {
   if (window.__AJP_DEMO__) return false;
