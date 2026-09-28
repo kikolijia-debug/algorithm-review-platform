@@ -17,6 +17,7 @@ import * as T from './pages/teacher-core.js';
 import * as TI from './pages/teacher-insight.js';
 import * as TC from './pages/teacher-classes.js';
 import * as TM from './pages/teacher-merged.js';
+import * as M from './pages/materials.js';
 
 /* --------------------------------------------------------------- 导航表 */
 
@@ -27,6 +28,7 @@ const NAV = {
       items: [
         { label: '学习动态', path: '/student', icon: icon.spark },
         { label: '题库与作业', path: '/problems', icon: icon.book },
+        { label: '课程资源', path: '/materials', icon: icon.doc },
         { label: '我的提交', path: '/student/submissions', icon: icon.code },
         { label: '互评中心', path: '/student/reviews', icon: icon.users, badge: 'peerPending' },
         { label: '我的主观题', path: '/student/subjective', icon: icon.check },
@@ -115,6 +117,7 @@ function topbar() {
   const map = {
     '/student': ['学习动态'],
     '/problems': ['题库与作业'],
+    '/materials': ['课程资源'],
     '/problem': ['题库与作业', '题目详情'],
     '/student/submissions': ['学习动态', '我的提交'],
     '/student/reviews': ['学习动态', '互评中心'],
@@ -385,6 +388,7 @@ function registerRoutes() {
 
   // 学生端
   P('/student', S.loadDashboard, S.renderDashboard);
+  P('/materials', (ctx) => M.loadMaterials(ctx), (d, c, ctx) => M.renderMaterials(d, c, ctx));
   P('/student/submissions', S.loadSubmissions, S.renderSubmissions);
   P('/student/submissions/:id', S.loadSubmissionDetail, S.renderSubmissionDetail);
   P('/student/reviews', S.loadReviews, S.renderReviews);

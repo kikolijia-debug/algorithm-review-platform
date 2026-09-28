@@ -13,24 +13,30 @@ import { ok, fail, confirmDialog } from '../core/toast.js';
 import * as U from '../core/ui.js';
 
 export async function loadClasses() {
-  const [classes, unassigned, courses] = await Promise.all([
+  const [classes, unassigned, courses, notices] = await Promise.all([
     api.get('/api/classes'),
     api.get('/api/classes/unassigned').catch(() => []),
     api.get('/api/courses'),
+    api.get('/api/notices').catch(() => []),
   ]);
   const stats = await api.get('/api/submissions/stats/overview').catch(() => null);
-  return { classes, unassigned, courses, stats };
+  return { classes, unassigned, courses, stats, notices };
 }
 
-export function renderClasses({ classes, unassigned, courses, stats }) {
+export function renderClasses({ classes, unassigned, courses, stats, notices }) {
   const courseId = state.courseId || (courses[0] && courses[0].id);
   const totalStudents = classes.reduce((a, c) => a + (c.member_count || 0), 0) + (unassigned || []).length;
+  const withAvg = classes.filter((c) => c.avg_score !== null && c.avg_score !== undefined);
+  const overallAvg = withAvg.length
+    ? Math.round(withAvg.reduce((a, c) => a + c.avg_score * (c.member_count || 1), 0)
+        / Math.max(1, withAvg.reduce((a, c) => a + (c.member_count || 1), 0)) * 10) / 10
+    : null;
 
   const refresh = () => router.resolve();
 
-  const head = U.pageHeader('班级管理', {
+  const head = U.pageHeader('班级与学生', {
     eyebrow: 'CLASSES',
-    sub: '新建、重命名、删除班级，管理班级成员。',
+    sub: '班级概览、成员调整与课程通知都在这里。',
     actions: U.btn('新建班级', { tone: 'primary', icon: U.icon.plus, onClick: () => openClassEditor(null, courseId, refresh) }),
   });
 
@@ -39,8 +45,9 @@ export function renderClasses({ classes, unassigned, courses, stats }) {
     { class: 'stat-row mb16' },
     U.stat(classes.length, '班级数'),
     U.stat(totalStudents, '学生总数', { tone: 'blue' }),
-    U.stat((unassigned || []).length, '未分班', { tone: unassigned && unassigned.length ? 'warn' : 'ok' }),
-    U.stat(stats ? Math.round((stats.ac_rate || 0) * 100) + '%' : '—', '整体通过率', { tone: 'brand' })
+    U.stat(overallAvg === null ? '—' : overallAvg, '平均分', { tone: 'brand' }),
+    U.stat(stats ? Math.round((stats.ac_rate || 0) * 100) + '%' : '—', '整体通过率', { tone: 'ok' }),
+    U.stat((unassigned || []).length, '未分班', { tone: unassigned && unassigned.length ? 'warn' : 'ok' })
   );
 
   const cards = classes.length
@@ -63,11 +70,20 @@ export function renderClasses({ classes, unassigned, courses, stats }) {
       )
     : null;
 
-  return h('div', {}, head, overview, cards, unassignedBox ? h('div', { class: 'mt16' }, unassignedBox) : null);
+  return h(
+    'div',
+    {},
+    head,
+    overview,
+    cards,
+    unassignedBox ? h('div', { class: 'mt16' }, unassignedBox) : null,
+    h('div', { class: 'mt16' }, noticeCard(notices || []))
+  );
 }
 
 function classCard(c, allClasses, courseId, refresh) {
   const rate = Math.round((c.ac_rate || 0) * 100);
+  const avg = c.avg_score === null || c.avg_score === undefined ? '—' : c.avg_score;
   return h(
     'div',
     { class: 'card problem-card' },
@@ -81,6 +97,7 @@ function classCard(c, allClasses, courseId, refresh) {
     h(
       'div',
       { class: 'problem-card__stats' },
+      h('span', {}, `平均分 ${avg}`),
       h('span', {}, `通过率 ${rate}%`),
       h('span', {}, `有提交 ${c.active_count} 人`),
       h('span', {}, `提交 ${c.total_submissions} 次`)
@@ -118,6 +135,53 @@ function classCard(c, allClasses, courseId, refresh) {
 }
 
 /* ------------------------------------------------------------ 新建 / 重命名 */
+
+/* ------------------------------------------------------------ 课程通知 */
+
+function noticeCard(notices) {
+  return U.card(
+    U.cardHead('课程通知', {
+      sub: '学生登录后在学习动态里看到',
+      actions: U.btn('发布通知', { tone: 'soft', size: 'sm', onClick: () => publishNotice() }),
+    }),
+    notices.length
+      ? h('div', {}, ...notices.slice(0, 6).map((n) =>
+          h('div', { class: 'mini-row' },
+            h('span', { class: 'grow' }, h('b', {}, n.title),
+              h('div', { class: 'small muted' }, n.content)),
+            h('span', { class: 'mini-row__time' }, U.timeAgo(n.created_at)))))
+      : U.empty('暂无通知', '发布后学生会在学习动态里看到。')
+  );
+}
+
+async function publishNotice() {
+  const title = h('input', { class: 'input', placeholder: '通知标题' });
+  const content = h('textarea', { class: 'input input--area', placeholder: '通知内容' });
+  U.modal('发布课程通知', h('div', { class: 'col', style: { gap: '14px' } },
+    U.field('标题', title, { required: true }),
+    U.field('内容', content, { required: true })), {
+    width: 560,
+    actions: (close) => [
+      U.btn('取消', { tone: 'ghost', onClick: close }),
+      U.btn('发布', {
+        tone: 'primary',
+        onClick: async () => {
+          if (!title.value.trim() || !content.value.trim()) return fail('请填写标题与内容');
+          try {
+            await api.post('/api/notices', {
+              course_id: state.courseId, title: title.value, content: content.value,
+            });
+            ok('通知已发布');
+            close();
+            router.resolve();
+          } catch (e) {
+            fail(e.message);
+          }
+        },
+      }),
+    ],
+  });
+}
 
 function openClassEditor(cls, courseId, onSaved) {
   const isEdit = !!cls;

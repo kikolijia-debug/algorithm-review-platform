@@ -13,193 +13,180 @@ import { openProblemEditor, deleteProblem } from './problem-editor.js';
 /* ======================================================== 教学看板 */
 
 export async function loadTeacherDashboard() {
-  const [dash, klass] = await Promise.all([
+  const [dash, chapters] = await Promise.all([
     api.get('/api/dashboard/teacher'),
-    api.get('/api/analytics/class').catch(() => null),
+    api.get('/api/chapters').catch(() => []),
   ]);
-  return { dash, klass };
+  return { dash, chapters };
 }
 
-export function renderTeacherDashboard({ dash, klass }) {
-  const st = dash.stats || {};
-  const assignments = dash.assignments || [];
-  const active = assignments.filter((a) => !a.overdue && a.status !== 'closed');
-  const needAttention = assignments.filter((a) => a.pending_reviews > 0 || a.status === 'reviewing');
-  const totalStudents = dash.students || 0;
+/**
+ * 教学看板只做「入口」：不放统计图表与列表，
+ * 数据一律去对应的功能页看，避免同一份数据在多处出现、口径不一致。
+ */
+export function renderTeacherDashboard({ dash, chapters }) {
+  const course = (dash && dash.course) || {};
+  const nChapters = (chapters || []).length;
+  const nProblems = (chapters || []).reduce((a, c) => a + (c.problem_count || 0), 0);
+
+  const entries = [
+    {
+      title: '作业与题库',
+      desc: '布置作业、配置评分规则与截止时间；维护编程题、算法分析题、证明题与开放性问答题，按课程章节组织题库。',
+      points: ['四类题型与测试数据', '按章节选题', '课件与讲义'],
+      href: '#/teacher/work',
+      cta: '进入作业与题库',
+      meta: `${nChapters} 个章节 · ${nProblems} 道题目`,
+    },
+    {
+      title: '班级与学生',
+      desc: '建班、改名、删除与成员调整；查看班级概览（人数、通过率、平均分）与学生提交记录。',
+      points: ['班级增删改', '成员与未分班学生', '提交记录'],
+      href: '#/teacher/students',
+      cta: '进入班级与学生',
+      meta: '班级概览与成员管理统一在这里',
+    },
+    {
+      title: '学情分析',
+      desc: '题目通过率、成绩分布、提交次数、常见错误、题目难度与知识点掌握，以及学生能力估计。',
+      points: ['学习过程与课程分析', '能力与难度（IRT / ELO）', '薄弱知识点'],
+      href: '#/teacher/analytics',
+      cta: '进入学情分析',
+      meta: '作业完成情况请在「作业与题库」查看',
+    },
+    {
+      title: '评审管理',
+      desc: '查看互评分配与评分结果，复核异常或疑似不公平评分，必要时人工修正；同时提供代码相似度检测。',
+      points: ['分配与评分聚合', '异常检测与人工修正', '代码相似度'],
+      href: '#/teacher/reviews',
+      cta: '进入评审管理',
+      meta: 'Peer Review 全流程',
+      badge: (dash && dash.stats && dash.stats.open_anomalies) || 0,
+    },
+    {
+      title: '算法实验台',
+      desc: '对分配算法、评分聚合方案、异常检测方法做对照实验，观察复杂度曲线与稳定性、公平性指标。',
+      points: ['方法对照实验', '复杂度运行曲线', '指标对比'],
+      href: '#/teacher/experiments',
+      cta: '进入算法实验台',
+      meta: '大作业的实验验证部分',
+    },
+    {
+      title: '课程资源',
+      desc: '按章节浏览授课课件与讲义，支持上传维护；题目与课件使用同一套章节结构。',
+      points: ['章节化课件库', '在线预览 / 下载', '与题库联动'],
+      href: '#/materials',
+      cta: '进入课程资源',
+      meta: `${nChapters} 个章节`,
+    },
+  ];
 
   const hero = h(
     'div',
     { class: 'hero' },
-    h(
-      'div',
-      {},
+    h('div', {},
       h('div', { class: 'hero__title' }, '教学看板'),
       h('p', { class: 'hero__sub' },
-        `${dash.course.name} · ${dash.students} 名学生 · 整体通过率 ${Math.round((st.ac_rate || 0) * 100)}%`),
-      h('div', { class: 'row mt16' },
-        h('a', { class: 'btn btn--primary btn--sm', href: '#/teacher/work' }, '布置作业'),
-        h('a', { class: 'btn btn--dark btn--sm', href: '#/teacher/reviews' }, '处理互评'),
-        h('a', { class: 'btn btn--dark btn--sm', href: '#/teacher/analytics' }, '看学情'))
-    ),
-    h(
-      'div',
-      { class: 'hero__tiles' },
-      h('div', { class: 'hero-tile' }, h('b', {}, totalStudents), h('span', {}, '学生')),
-      h('div', { class: 'hero-tile' }, h('b', {}, active.length), h('span', {}, '进行中作业')),
-      h('div', { class: 'hero-tile' }, h('b', {}, st.pending_reviews), h('span', {}, '待完成互评')),
-      h('div', { class: 'hero-tile' }, h('b', {}, st.open_anomalies), h('span', {}, '待处理异常'))
+        (course.name ? course.name + ' · ' : '') + '选择下面任意一个入口开始工作'))
+  );
+
+  const grid = h('div', { class: 'entry-grid' },
+    ...entries.map((e) =>
+      h('a', { class: 'entry-card', href: e.href },
+        h('div', { class: 'entry-card__top' },
+          h('div', { class: 'entry-card__title' }, e.title),
+          e.badge ? U.badge('待处理 ' + e.badge, 'warn') : null),
+        h('p', { class: 'entry-card__desc' }, e.desc),
+        h('div', { class: 'entry-card__points' },
+          ...(e.points || []).map((p) => h('span', { class: 'chip' }, p))),
+        h('div', { class: 'entry-card__foot' },
+          h('span', { class: 'small muted' }, e.meta || ''),
+          h('span', { class: 'entry-card__cta' }, e.cta, h('span', { html: U.icon.arrow }))))
     )
   );
 
-  // 待办放最前：教师打开页面第一眼就知道要做什么
-  const attention = U.card(
-    U.cardHead('需要你处理', { sub: '按优先级排列' }),
-    h('div', { class: 'col', style: { gap: '10px' } },
-      st.open_anomalies
-        ? U.alertRow('high', `${st.open_anomalies} 条异常评审待复核`, '长期偏高/偏低、单次偏离或固定互评关系。',
-            h('a', { class: 'btn btn--soft btn--xs', href: '#/teacher/reviews' }, '去复核'))
-        : null,
-      st.pending_reviews
-        ? U.alertRow('medium', `${st.pending_reviews} 份互评尚未完成`, '可在「评审管理」查看进度并催办。',
-            h('a', { class: 'btn btn--soft btn--xs', href: '#/teacher/reviews' }, '去查看'))
-        : null,
-      needAttention.length
-        ? U.alertRow('low', `${needAttention.length} 次作业处于互评或未截止状态`, '截止后结果自动公布给学生。')
-        : null,
-      (!st.pending_reviews && !st.open_anomalies)
-        ? U.empty('暂无需要处理的事项', '互评已完成，未发现高风险评审。')
-        : null
-    )
-  );
-
-  const progressCard = U.card(
-    U.cardHead('作业进度', {
-      sub: `${assignments.length} 次作业`,
-      actions: h('a', { class: 'btn btn--ghost btn--sm', href: '#/teacher/work' }, '全部'),
-    }),
-    assignments.length
-      ? h('div', { class: 'col' }, ...assignments.slice(0, 5).map((a) => {
-          const done = Math.max(a.submitted_users, a.subjective_users);
-          return h('div', { class: 'list-row' },
-            h('div', { class: 'list-row__main' },
-              h('div', { class: 'list-row__title' }, a.title,
-                U.badge(ASSIGNMENT_STATUS[a.status] || a.status, a.status === 'reviewing' ? 'blue' : a.overdue ? 'neutral' : 'brand'),
-                a.peer_review ? U.badge('互评', 'warn') : null),
-              h('div', { class: 'list-row__meta' },
-                h('span', {}, `${done}/${totalStudents} 人已交`),
-                h('span', {}, a.due_at ? '截止 ' + U.fmtDate(a.due_at, { withTime: false }) : '未设截止'),
-                a.pending_reviews ? h('span', { style: { color: 'var(--amber)' } }, `待评 ${a.pending_reviews}`) : null),
-              U.progress(done / Math.max(1, totalStudents))),
-            h('div', { class: 'list-row__side' },
-              h('a', { class: 'btn btn--soft btn--sm', href: `#/teacher/assignment/${a.id}` }, '详情')));
-        }))
-      : U.empty('还没有作业', '点击右上角「布置作业」创建第一次作业。')
-  );
-
-  const classCard = U.card(
-    U.cardHead('班级概览', {
-      sub: `${(dash.class_stats || []).length} 个班级 · ${totalStudents} 人`,
-      actions: h('a', { class: 'btn btn--ghost btn--sm', href: '#/teacher/students' }, '管理'),
-    }),
-    (dash.class_stats || []).length
-      ? h('div', { class: 'col', style: { gap: '10px' } }, ...dash.class_stats.map((c) =>
-          h('div', { class: 'list-row' },
-            h('div', { class: 'list-row__main' },
-              h('div', { class: 'list-row__title' }, c.class_name || '未分班'),
-              h('div', { class: 'list-row__meta' }, h('span', {}, `${c.n} 名学生`))))))
-      : U.empty('暂无班级', ''),
-    klass && (klass.problems || []).length
-      ? h('div', { class: 'mt16' },
-          h('h4', { class: 'small muted', style: { marginBottom: '8px' } }, '题目通过率'),
-          h('div', { class: 'score-list' }, ...(klass.problems || []).slice(0, 6).map((p) =>
-            h('div', { class: 'score-item' },
-              h('span', { class: 'score-item__name', title: p.title }, p.title),
-              U.meter(Math.round(p.pass_rate * 100), { tone: p.pass_rate > 0.7 ? 'ok' : p.pass_rate > 0.4 ? 'brand' : 'warn' }),
-              h('span', { class: 'score-item__val' }, Math.round(p.pass_rate * 100) + '%')))))
-      : null
-  );
-
-  const noticeBox = U.card(
-    U.cardHead('课程通知', { actions: U.btn('发布通知', { tone: 'soft', size: 'sm', onClick: () => publishNotice() }) }),
-    (dash.notices || []).length
-      ? h('div', {}, ...dash.notices.map((n) =>
-          h('div', { class: 'mini-row' }, h('span', { class: 'grow' }, h('b', {}, n.title), h('div', { class: 'small muted' }, n.content)),
-            h('span', { class: 'mini-row__time' }, U.timeAgo(n.created_at)))))
-      : U.empty('暂无通知', '发布通知后学生会立即看到。')
-  );
-
-  return h(
-    'div',
-    { class: 'col', style: { gap: '16px' } },
-    hero,
-    h('div', { class: 'dash-grid' },
-      h('div', { class: 'col', style: { gap: '16px' } }, attention, progressCard),
-      h('div', { class: 'col', style: { gap: '16px' } }, classCard, noticeBox))
-  );
-}
-
-async function publishNotice() {
-  const title = h('input', { class: 'input', placeholder: '通知标题' });
-  const content = h('textarea', { class: 'input input--area', placeholder: '通知内容' });
-  U.modal('发布课程通知', h('div', { class: 'col', style: { gap: '14px' } },
-    U.field('标题', title, { required: true }),
-    U.field('内容', content, { required: true })), {
-    width: 560,
-    actions: (close) => [
-      U.btn('取消', { tone: 'ghost', onClick: close }),
-      U.btn('发布', {
-        tone: 'primary',
-        onClick: async () => {
-          if (!title.value.trim() || !content.value.trim()) return fail('请填写标题与内容');
-          try {
-            await api.post('/api/notices', { course_id: state.courseId, title: title.value, content: content.value });
-            ok('通知已发布');
-            close();
-            router.resolve();
-          } catch (e) { fail(e.message); }
-        },
-      }),
-    ],
-  });
+  return h('div', { class: 'col', style: { gap: '16px' } }, hero, grid);
 }
 
 /* ======================================================== 作业管理 */
 
 export async function loadAssignments() {
-  const [assignments, problems, courses] = await Promise.all([
+  const [assignments, problems, courses, chapters] = await Promise.all([
     api.get('/api/assignments'),
     api.get('/api/problems'),
     api.get('/api/courses'),
+    api.get('/api/chapters').catch(() => []),
   ]);
-  return { assignments, problems, courses };
+  return { assignments, problems, courses, chapters };
 }
 
-export function renderAssignments({ assignments, problems, courses }) {
+export function renderAssignments({ assignments, problems, courses, chapters }) {
   const rows = assignments.map((a) => ({
     ...a,
     done: Math.max(a.submitted_users || 0, a.subjective_users || 0),
     students: a.students || 0,
+    rate: Math.min(1, Math.max(a.submitted_users || 0, a.subjective_users || 0) / Math.max(1, a.students || 1)),
   }));
+  const doneAll = rows.filter((a) => !a.overdue && a.status !== 'closed');
   return h(
     'div',
     {},
     U.pageHeader('作业管理', {
       eyebrow: 'ASSIGNMENTS',
-      sub: '创建作业、配置题目与评分规则、设置互评与截止时间。',
-      actions: U.btn('布置新作业', { tone: 'primary', icon: U.icon.plus, onClick: () => createAssignment(problems, courses, () => router.resolve()) }),
+      sub: '创建作业、配置题目与评分规则、设置互评与截止时间；作业完成情况在这里统一查看。',
+      actions: U.btn('布置新作业', { tone: 'primary', icon: U.icon.plus, onClick: () => createAssignment(problems, courses, () => router.resolve(), null, chapters) }),
     }),
+    h(
+      'div',
+      { class: 'stat-row mb16' },
+      U.stat(rows.length, '作业总数'),
+      U.stat(doneAll.length, '进行中', { tone: 'brand' }),
+      U.stat(rows.filter((a) => a.peer_review).length, '含互评', { tone: 'blue' }),
+      U.stat(rows.filter((a) => a.pending_reviews).length, '待评未完成', {
+        tone: rows.some((a) => a.pending_reviews) ? 'warn' : 'ok',
+      })
+    ),
     U.card(
       U.table(
         [
-          { title: '作业', render: (a) => h('div', {}, h('b', {}, a.title), h('div', { class: 'small muted' }, a.description || '')) },
-          { title: '类型', width: '110px', render: (a) => (a.peer_review ? U.badge('互评主观题', 'warn') : U.badge('编程评测', 'brand')) },
-          { title: '题目', width: '70px', class: 'num', render: (a) => a.problem_count },
-          { title: '提交进度', width: '170px', render: (a) => h('div', {}, U.progress(a.done / Math.max(1, a.students)), h('span', { class: 'small muted' }, `${a.done}/${a.students} 人`)) },
+          {
+            title: '作业', width: '26%',
+            render: (a) => h('div', {},
+              h('b', {}, a.title),
+              h('div', { class: 'small muted' }, (a.description || '').slice(0, 46))),
+          },
+          {
+            title: '类型', width: '96px',
+            render: (a) => (a.peer_review ? U.badge('互评主观题', 'warn') : U.badge('编程评测', 'brand')),
+          },
+          { title: '题量', width: '62px', class: 'num', render: (a) => a.problem_count },
+          {
+            title: '完成情况', width: '190px',
+            render: (a) => h('div', {},
+              U.progress(a.rate, { tone: a.rate >= 0.8 ? 'ok' : a.rate >= 0.5 ? 'brand' : 'warn' }),
+              h('span', { class: 'small muted' }, `提交 ${a.done}/${a.students} 人`)),
+          },
+          {
+            title: '通过 / 均分', width: '120px',
+            render: (a) => h('div', { class: 'small' },
+              h('div', {}, `通过 ${a.accepted_users || 0} 人`),
+              h('div', { class: 'muted' }, a.avg_score === null || a.avg_score === undefined ? '均分 —' : `均分 ${a.avg_score}`)),
+          },
+          {
+            title: '互评进度', width: '110px',
+            render: (a) => (a.peer_review
+              ? h('div', { class: 'small' },
+                  h('div', {}, `已完成 ${a.review_done || 0}/${a.review_total || 0}`),
+                  a.pending_reviews
+                    ? h('div', { style: { color: 'var(--amber)' } }, `待评 ${a.pending_reviews}`)
+                    : h('div', { class: 'muted' }, '已全部完成'))
+              : h('span', { class: 'muted' }, '—')),
+          },
           { title: '截止', width: '140px', render: (a) => (a.due_at ? U.fmtDate(a.due_at, { withTime: false }) : '未设') },
           { title: '状态', width: '110px', render: (a) => U.badge(ASSIGNMENT_STATUS[a.status] || a.status, a.status === 'reviewing' ? 'blue' : a.overdue ? 'neutral' : 'brand') },
           { title: '', width: '140px', render: (a) => h('div', { class: 'row', style: { gap: '6px' } },
               h('a', { class: 'btn btn--soft btn--xs', href: `#/teacher/assignment/${a.id}` }, '详情'),
-              h('button', { class: 'btn btn--plain btn--xs', onclick: () => editAssignment(a, problems, () => router.resolve()) }, '编辑')) },
+              h('button', { class: 'btn btn--plain btn--xs', onclick: () => editAssignment(a, problems, () => router.resolve(), chapters) }, '编辑')) },
         ],
         rows,
         { empty: '还没有创建作业' }
@@ -208,7 +195,7 @@ export function renderAssignments({ assignments, problems, courses }) {
   );
 }
 
-function createAssignment(problems, courses, onSaved, existing) {
+function createAssignment(problems, courses, onSaved, existing, chapters) {
   const draft = existing
     ? { ...existing, problem_ids: (existing.problems || []).map((p) => p.id) }
     : {
@@ -220,20 +207,82 @@ function createAssignment(problems, courses, onSaved, existing) {
         problem_ids: [],
       };
   const chosen = new Set(draft.problem_ids || []);
-  const listBox = h('div', { style: { maxHeight: '280px', overflowY: 'auto', border: '1px solid var(--line)', borderRadius: '12px', padding: '8px' } });
+  const listBox = h('div', { class: 'pick-list' });
+  // 选题按课程章节分组：先选章节，再在章节内挑题目
+  let pickChapter = 'all';
+  let pickKeyword = '';
+  const chapterLabel = new Map((chapters || []).map((c) => [c.key, c.label]));
+  const countLabel = h('div', { class: 'small muted' },
+    `已选 ${chosen.size} 道；编程题走自动评测，主观题进入互评流程`);
   const paintList = () => {
     clear(listBox);
-    problems.forEach((p) => {
-      listBox.appendChild(
-        h('label', { class: 'list-row', style: { cursor: 'pointer', marginBottom: '6px' } },
-          h('input', { type: 'checkbox', checked: chosen.has(p.id), onchange: (e) => { e.target.checked ? chosen.add(p.id) : chosen.delete(p.id); } }),
-          h('div', { class: 'list-row__main' },
-            h('div', { class: 'list-row__title' }, p.title),
-            h('div', { class: 'list-row__meta' }, h('span', {}, PROBLEM_TYPE[p.type]), h('span', {}, '难度 ' + p.difficulty))),
-          U.badge(p.type === 'programming' ? '编程' : '主观', p.type === 'programming' ? 'brand' : 'blue')))
+    const visible = problems.filter((p) =>
+      (pickChapter === 'all' || p.chapter === pickChapter) &&
+      (!pickKeyword || p.title.includes(pickKeyword)));
+    if (!visible.length) {
+      listBox.appendChild(U.empty('没有符合条件的题目', '换个章节或关键词试试。'));
+      return;
+    }
+    // 按章节分组展示，组内保持题库顺序
+    const groups = [];
+    const index = new Map();
+    visible.forEach((p) => {
+      const key = p.chapter || 'other';
+      if (!index.has(key)) {
+        index.set(key, groups.length);
+        groups.push({ key, items: [] });
+      }
+      groups[index.get(key)].items.push(p);
+    });
+    const ordered = groups.slice().sort((a, b) => {
+      const ai = (chapters || []).findIndex((c) => c.key === a.key);
+      const bi = (chapters || []).findIndex((c) => c.key === b.key);
+      return (ai < 0 ? 999 : ai) - (bi < 0 ? 999 : bi);
+    });
+    ordered.forEach((g) => {
+      const label = chapterLabel.get(g.key) || '拓展（未对应课件章节）';
+      listBox.appendChild(h('div', { class: 'pick-group' },
+        h('div', { class: 'pick-group__head' }, label,
+          h('span', { class: 'small muted' }, ` · ${g.items.length} 题`)),
+        ...g.items.map((p) =>
+          h('label', { class: 'list-row pick-row' },
+            h('input', {
+              type: 'checkbox', checked: chosen.has(p.id),
+              onchange: (e) => {
+                if (e.target.checked) chosen.add(p.id); else chosen.delete(p.id);
+                countLabel.textContent = `已选 ${chosen.size} 道；编程题走自动评测，主观题进入互评流程`;
+              },
+            }),
+            h('div', { class: 'list-row__main' },
+              h('div', { class: 'list-row__title' }, p.title),
+              h('div', { class: 'list-row__meta' },
+                h('span', {}, PROBLEM_TYPE[p.type]),
+                h('span', {}, '难度 ' + p.difficulty),
+                (p.topics || []).length ? h('span', {}, p.topics.slice(0, 2).join(' / ')) : null)),
+            U.badge(p.type === 'programming' ? '编程' : '主观',
+              p.type === 'programming' ? 'brand' : 'blue')))
+      ));
     });
   };
   paintList();
+  const pickBar = h(
+    'div',
+    { class: 'filterbar', style: { marginBottom: '8px' } },
+    U.select(
+      [{ value: 'all', label: '全部章节' }].concat(
+        (chapters || []).map((c) => ({ value: c.key, label: c.label }))
+      ),
+      { value: pickChapter, onchange: (e) => { pickChapter = e.target.value; paintList(); } }
+    ),
+    h('div', { class: 'search-box' },
+      h('span', { class: 'search-box__icon', html: U.icon.search }),
+      h('input', {
+        class: 'input search', placeholder: '搜索题目…',
+        oninput: (e) => { pickKeyword = e.target.value.trim(); paintList(); },
+      })),
+    h('div', { class: 'grow' }),
+    countLabel
+  );
 
   const peerSwitch = h('input', { type: 'checkbox', checked: !!draft.peer_review, onchange: (e) => { draft.peer_review = e.target.checked ? 1 : 0; togglePeer(); } });
   const peerBox = h('div', {});
@@ -279,7 +328,8 @@ function createAssignment(problems, courses, onSaved, existing) {
     h('div', { class: 'mt16' }, U.field('作业说明', U.textarea({ value: draft.description, style: { minHeight: '80px' }, oninput: (e) => (draft.description = e.target.value) }))),
     h('div', { class: 'mt16' }, h('label', { class: 'switch' }, peerSwitch, h('span', { class: 'switch__track' }), h('span', {}, '启用匿名互评（主观题）'))),
     peerBox,
-    h('div', { class: 'mt16' }, U.field('选择题目', listBox, { hint: `已选 ${chosen.size} 道；编程题走自动评测，主观题进入互评流程` })),
+    h('div', { class: 'mt16' },
+      U.field('选择题目（按课程章节）', h('div', {}, pickBar, listBox))),
   );
 
   U.modal(existing ? '编辑作业 · ' + draft.title : '布置新作业', body, {
@@ -305,8 +355,8 @@ function createAssignment(problems, courses, onSaved, existing) {
   });
 }
 
-function editAssignment(a, problems, onSaved) {
-  createAssignment(problems, [], onSaved, a);
+function editAssignment(a, problems, onSaved, chapters) {
+  createAssignment(problems, [], onSaved, a, chapters);
 }
 
 /* ======================================================== 作业详情 */

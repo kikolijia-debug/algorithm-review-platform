@@ -84,6 +84,16 @@ def skip(name, reason):
     print(f"  [skip] {name}  —— {reason}")
 
 
+def _report(name, ok, detail=""):
+    """给不走 /api 的检查（例如静态课件下载）用同一套统计口径。"""
+    if ok:
+        PASS.append(name)
+        print(f"  [ ok ] {name}")
+    else:
+        FAIL.append((name, detail))
+        print(f"  [FAIL] {name}  {detail}")
+
+
 def d(payload, *keys, default=None):
     """安全地取值：d(payload, 'data', 'rows')"""
     cur = payload
@@ -163,6 +173,38 @@ def main() -> int:
     check("按关键词搜索无结果时返回空列表", "/api/problems" + enc(q="不存在的题目名xyz"),
           role="teacher", probe=lambda p: p.get("data") == [])
     check("按知识点筛选题目", "/api/problems" + enc(topic="动态规划"), role="teacher")
+    check("按章节筛选题目", "/api/problems" + enc(chapter="ch5"), role="teacher",
+          probe=lambda p: all(x.get("chapter") == "ch5" for x in p.get("data", [])))
+    check("章节列表（含课件数与题目数）", "/api/chapters", role="teacher",
+          probe=lambda p: len(p.get("data", [])) >= 10
+          and all("material_count" in c and "problem_count" in c for c in p["data"]))
+    check("课件列表", "/api/materials", role="teacher",
+          probe=lambda p: len(p.get("data", {}).get("rows", [])) > 0
+          and d(p, "data", "chapters"))
+    check("课件列表（学生可见）", "/api/materials", role="student")
+    mats = d(call("/api/materials", role="teacher")[1], "data", "rows", default=[])
+    if mats:
+        check("课件元数据完整（页数 / 体积 / 下载地址）",
+              "/api/materials", role="teacher",
+              probe=lambda p: all(m.get("url", "").startswith("/courseware/")
+                                  for m in d(p, "data", "rows", default=[])))
+    check("首页公开统计", "/api/stats/public", role=None,
+          probe=lambda p: d(p, "data", "problems", default=0) > 0
+          and d(p, "data", "materials", default=0) > 0)
+    # 课件文件本身由静态服务下发（不走 /api），单独探测一次
+    import urllib.request as _u
+
+    if mats:
+        url = BASE + mats[0]["url"]
+        try:
+            with _u.urlopen(url, timeout=20) as r:
+                head = r.read(5)
+            ok_file = r.status == 200 and head.startswith(b"%PDF")
+        except Exception as exc:  # pragma: no cover
+            ok_file = False
+            print(f"      课件下载异常: {exc}")
+        _report("静态下发课件 PDF", ok_file,
+                "" if ok_file else "课件文件无法通过 /courseware/ 访问")
     if probs:
         pid = probs[0]["id"]
         check("题目详情（教师可见测试数据）", f"/api/problems/{pid}", role="teacher",

@@ -9,16 +9,15 @@ import { ok, fail } from '../core/toast.js';
 /* ------------------------------------------------------------- 首页 */
 
 export async function renderLanding() {
-  let stats = { students: 48, problems: 14, submissions: 384, reviews: 271 };
+  let stats = { students: 48, problems: 29, submissions: 678, reviews: 300 };
   try {
-    const health = await api.get('/api/health');
-    const demo = await api.get('/api/courses');
-    if (demo && demo[0]) {
+    const real = await api.get('/api/stats/public');
+    if (real) {
       stats = {
-        students: demo[0].students || stats.students,
-        problems: demo[0].problems || stats.problems,
-        submissions: 384,
-        reviews: 271,
+        students: real.students || stats.students,
+        problems: real.problems || stats.problems,
+        submissions: real.submissions || 0,
+        reviews: real.reviews || 0,
       };
     }
   } catch (e) {

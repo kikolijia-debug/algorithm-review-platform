@@ -73,6 +73,26 @@ def build() -> dict:
     for a in anomalies:
         a["evidence"] = db.jloads(a["evidence"], {})
     notices = rows("SELECT * FROM notices ORDER BY id DESC")
+    # 课件库与章节结构：静态演示模式下「课程资源」页直接读这两个字段
+    materials = rows(
+        "SELECT id,chapter,chapter_title,title,filename,url,size_bytes,pages,topics,summary,"
+        "order_index FROM materials WHERE course_id=? ORDER BY chapter,order_index,id",
+        (cid,),
+    )
+    for m in materials:
+        m["topics"] = db.jloads(m.get("topics"), [])
+    from backend import courseware as CW
+
+    chapters = [
+        {
+            "key": c["key"], "no": c["no"], "title": c["title"],
+            "label": f"{c['no']} {c['title']}", "topic": c["topic"],
+            "summary": c["summary"], "topics": c["topics"],
+        }
+        for c in CW.CHAPTERS
+    ]
+    course_dict = dict(course)
+    course_dict["homepage"] = CW.COURSE_HOMEPAGE
     events = rows(
         "SELECT user_id,type,COUNT(*) c FROM events WHERE course_id=? GROUP BY user_id,type", (cid,)
     )
@@ -99,7 +119,9 @@ def build() -> dict:
                 {"key": "open", "label": "开放性问答题"},
             ],
         },
-        "course": dict(course),
+        "course": course_dict,
+        "chapters": chapters,
+        "materials": materials,
         "teachers": teachers,
         "students": students,
         "problems": problems,

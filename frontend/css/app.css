@@ -205,8 +205,12 @@ code, pre { font-family: var(--font-mono); }
   backdrop-filter: saturate(180%) blur(10px);
   border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 20;
 }
-.topbar__crumbs { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
-.topbar__crumbs b { color: var(--ink); font-weight: 600; }
+.topbar__crumbs {
+  display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px;
+  white-space: nowrap; min-width: 0; overflow: hidden;
+}
+.topbar__crumbs > * { flex: none; }
+.topbar__crumbs b { color: var(--ink); font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
 .crumb-link {
   border: none; background: transparent; padding: 2px 4px; margin: 0 -4px;
   color: var(--muted); font: inherit; cursor: pointer; border-radius: 6px;
@@ -795,6 +799,41 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
 
 /* 看板 */
 .dash-grid { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+
+/* 教学看板：只做功能入口 */
+.entry-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
+.entry-card {
+  display: flex; flex-direction: column; gap: 10px; padding: 18px;
+  border-radius: 16px; border: 1px solid var(--line); background: var(--surface);
+  text-decoration: none; color: inherit; transition: border-color .16s, transform .16s, box-shadow .16s;
+}
+.entry-card:hover { border-color: var(--brand); transform: translateY(-2px); box-shadow: var(--shadow-2); }
+.entry-card__top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.entry-card__title { font-family: var(--font-display); font-size: 17px; font-weight: 600; color: var(--ink); }
+.entry-card__desc { margin: 0; font-size: 13px; line-height: 1.75; color: var(--ink-2); }
+.entry-card__points { display: flex; flex-wrap: wrap; gap: 6px; }
+.entry-card__foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  margin-top: auto; padding-top: 10px; border-top: 1px dashed var(--line);
+}
+.entry-card__cta { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; color: var(--brand); }
+.chip {
+  font-size: 11.5px; padding: 2px 9px; border-radius: 999px;
+  background: var(--surface-3); color: var(--ink-2); border: 1px solid var(--line);
+}
+
+/* 选题器：按章节分组 */
+.pick-list {
+  max-height: 320px; overflow-y: auto; border: 1px solid var(--line);
+  border-radius: 12px; padding: 8px; background: var(--surface);
+}
+.pick-group + .pick-group { margin-top: 10px; }
+.pick-group__head {
+  font-size: 12px; font-weight: 600; color: var(--ink-2);
+  padding: 6px 8px; background: var(--surface-3); border-radius: 8px; margin-bottom: 6px;
+}
+.pick-row { cursor: pointer; margin-bottom: 6px; }
+.pick-row:last-child { margin-bottom: 0; }
 .mini-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px dashed var(--line); font-size: 13px; }
 .mini-row:last-child { border-bottom: none; }
 .mini-row__time { color: var(--muted); font-size: 11.5px; margin-left: auto; white-space: nowrap; }
@@ -862,6 +901,16 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
 }
 @media (min-width: 901px) {
   .nav-toggle { display: none; }
+}
+
+/* 窄屏：顶栏只保留返回按钮、主题与用户，隐藏面包屑与演示角标，避免换行挤成一列 */
+@media (max-width: 1000px) {
+  .topbar { gap: 8px; padding: 0 12px; }
+  .topbar__crumbs { display: none; }
+  .topbar .btn--sm { padding: 5px 9px; font-size: 12px; }
+}
+@media (max-width: 640px) {
+  .topbar .badge--warn { display: none; }
 }
 
 @media print {

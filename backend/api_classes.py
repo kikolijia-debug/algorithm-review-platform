@@ -81,17 +81,28 @@ def _class_stats(class_id: int, course_id: int) -> dict:
         return {"member_count": 0, "active_count": 0, "ac_rate": 0.0, "total_submissions": 0}
     ph = ",".join("?" * len(ids))
     rows = db.q(
-        "SELECT s.user_id, MAX(CASE WHEN s.verdict='Accepted' THEN 1 ELSE 0 END) ok, COUNT(*) n "
+        "SELECT s.user_id, s.problem_id, "
+        "MAX(CASE WHEN s.verdict='Accepted' THEN 1 ELSE 0 END) ok, COUNT(*) n "
         "FROM submissions s JOIN problems p ON p.id=s.problem_id "
-        f"WHERE p.course_id=? AND s.user_id IN ({ph}) GROUP BY s.user_id",
+        f"WHERE p.course_id=? AND s.user_id IN ({ph}) GROUP BY s.user_id, s.problem_id",
         (course_id, *ids),
     )
-    solved = {r["user_id"]: r["ok"] for r in rows}
+    # 通过率按「学生 × 题目」统计：尝试过的题目里最终通过的比例
+    attempted = len(rows)
+    passed = sum(1 for r in rows if r["ok"])
+    active = len({r["user_id"] for r in rows})
+    avg = db.q1(
+        "SELECT AVG(best) v FROM (SELECT MAX(s.score) best FROM submissions s "
+        f"JOIN problems p ON p.id=s.problem_id WHERE p.course_id=? AND s.user_id IN ({ph}) "
+        "GROUP BY s.user_id, s.problem_id)",
+        (course_id, *ids),
+    )
     return {
         "member_count": len(ids),
-        "active_count": len(rows),
-        "ac_rate": round(sum(solved.values()) / len(ids), 4),
+        "active_count": active,
+        "ac_rate": round(passed / attempted, 4) if attempted else 0.0,
         "total_submissions": sum(r["n"] for r in rows),
+        "avg_score": round(avg["v"], 1) if avg and avg["v"] is not None else None,
     }
 
 

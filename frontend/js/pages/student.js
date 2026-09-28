@@ -209,27 +209,34 @@ function verdictColor(v) {
 /* ============================================================ 题库列表 */
 
 export async function loadProblemList(ctx) {
-  const [problems, courses] = await Promise.all([api.get('/api/problems', ctx.query), api.get('/api/courses')]);
-  return { problems, courses };
+  const [problems, courses, chapters] = await Promise.all([
+    api.get('/api/problems', ctx.query),
+    api.get('/api/courses'),
+    api.get('/api/chapters').catch(() => []),
+  ]);
+  return { problems, courses, chapters };
 }
 
-export function renderProblemList({ problems, courses }, _container, ctx) {
+export function renderProblemList({ problems, courses, chapters }, _container, ctx) {
   const teacher = isTeacher();
   let type = 'all';
   let keyword = '';
+  let chapter = (ctx && ctx.query && ctx.query.chapter) || 'all';
+  const chapterLabel = new Map((chapters || []).map((c) => [c.key, c.label]));
   const listBox = h('div', { class: 'grid grid--auto' });
 
   const paint = () => {
     clear(listBox);
     const filtered = problems.filter(
       (p) => (type === 'all' || (type === 'subjective' ? p.type !== 'programming' : p.type === type)) &&
+        (chapter === 'all' || p.chapter === chapter) &&
         (!keyword || p.title.includes(keyword) || (p.topics || []).some((t) => t.includes(keyword)))
     );
     if (!filtered.length) {
       listBox.appendChild(U.empty('没有符合条件的题目', '换个关键词或类型试试。'));
       return;
     }
-    filtered.forEach((p) => listBox.appendChild(problemCard(p, teacher)));
+    filtered.forEach((p) => listBox.appendChild(problemCard(p, teacher, chapterLabel)));
   };
 
   const filters = h(
@@ -256,6 +263,12 @@ export function renderProblemList({ problems, courses }, _container, ctx) {
       ],
       { value: 'all', onChange: (k) => { type = k; paint(); } }
     ),
+    U.select(
+      [{ value: 'all', label: '全部章节' }].concat(
+        (chapters || []).map((c) => ({ value: c.key, label: c.label }))
+      ),
+      { value: chapter, onchange: (e) => { chapter = e.target.value; paint(); } }
+    ),
     h('div', { class: 'grow' }),
     teacher ? U.btn('新建题目', { tone: 'primary', icon: U.icon.plus, onClick: () => openProblemEditor(null, () => router.resolve()) }) : null
   );
@@ -267,15 +280,15 @@ export function renderProblemList({ problems, courses }, _container, ctx) {
     U.pageHeader(teacher ? '题库管理' : '题库与作业', {
       eyebrow: 'PROBLEM BANK',
       sub: teacher
-        ? '创建题目、配置测试数据与评分规则。'
-        : '按知识点浏览题目，查看完成情况。',
+        ? '按课程章节组织题库，创建题目、配置测试数据与评分规则。'
+        : '按课程章节浏览题目，查看完成情况。',
     }),
     filters,
     listBox
   );
 }
 
-function problemCard(p, teacher) {
+function problemCard(p, teacher, chapterLabel) {
   const solved = p.my_verdict === 'Accepted' || p.pass_rate > 0;
   return h(
     'div',
@@ -292,6 +305,9 @@ function problemCard(p, teacher) {
       )
     ),
     h('div', { class: 'problem-card__stats' },
+      p.chapter && chapterLabel && chapterLabel.get(p.chapter)
+        ? h('span', {}, chapterLabel.get(p.chapter))
+        : null,
       h('span', {}, `难度 ${'★'.repeat(Math.min(5, p.difficulty))}`),
       h('span', {}, `${p.ac_count || 0}/${p.student_count || 0} 人通过`),
       h('span', {}, `${p.submit_count || 0} 次提交`),

@@ -88,6 +88,7 @@ CREATE TABLE IF NOT EXISTS problems (
     type            TEXT NOT NULL,          -- programming | analysis | proof | open
     difficulty      INTEGER DEFAULT 3,
     topics          TEXT DEFAULT '[]',
+    chapter         TEXT,                   -- 所属章节（与课件 courseware.py 的 key 对应）
     statement       TEXT,
     input_format    TEXT,
     output_format   TEXT,
@@ -268,6 +269,25 @@ CREATE TABLE IF NOT EXISTS settings (
     value TEXT
 );
 
+-- 课件库：按章节组织的授课课件（PDF 放在 frontend/courseware/，元数据入库）
+CREATE TABLE IF NOT EXISTS materials (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    course_id     INTEGER,
+    chapter       TEXT,
+    chapter_title TEXT,
+    title         TEXT NOT NULL,
+    filename      TEXT NOT NULL,
+    url           TEXT NOT NULL,
+    size_bytes    INTEGER DEFAULT 0,
+    pages         INTEGER DEFAULT 0,
+    sha256        TEXT,
+    topics        TEXT DEFAULT '[]',
+    summary       TEXT,
+    order_index   INTEGER DEFAULT 0,
+    uploaded_by   INTEGER,
+    created_at    TEXT NOT NULL
+);
+
 -- 会话持久化：服务重启后用户不必重新登录
 CREATE TABLE IF NOT EXISTS sessions (
     token   TEXT PRIMARY KEY,
@@ -339,6 +359,12 @@ def migrate(conn: sqlite3.Connection) -> None:
         if col not in sub_cols:
             conn.execute(f"ALTER TABLE submissions ADD COLUMN {col} {ddl}")
     conn.commit()
+
+    # 3. 给题目补上所属章节列（对应课件 courseware.py 里的章节 key）
+    prob_cols = [r["name"] for r in conn.execute("PRAGMA table_info(problems)")]
+    if "chapter" not in prob_cols:
+        conn.execute("ALTER TABLE problems ADD COLUMN chapter TEXT")
+        conn.commit()
 
     # 仅在 classes 表为空时反向补齐，避免覆盖教师后来手工调整的结果
     if conn.execute("SELECT COUNT(*) c FROM classes").fetchone()["c"]:

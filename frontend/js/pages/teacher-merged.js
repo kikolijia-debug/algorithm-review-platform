@@ -16,6 +16,7 @@ import * as T from './teacher-core.js';
 import * as TI from './teacher-insight.js';
 import * as S from './student.js';
 import * as TC from './teacher-classes.js';
+import * as M from './materials.js';
 
 /** 把一个页面的多个视图做成标签页；每个视图渲染完整的子页面。 */
 function merged(tabs, container) {
@@ -43,11 +44,12 @@ function bodyOnly(node) {
 /* ------------------------------------------------------ 作业与题库 */
 
 export async function loadWork(ctx) {
-  const [assignments, problems] = await Promise.all([
+  const [assignments, problems, materials] = await Promise.all([
     T.loadAssignments(),
     S.loadProblemList(ctx),
+    M.loadMaterials(ctx),
   ]);
-  return { assignments, problems };
+  return { assignments, problems, materials };
 }
 
 export function renderWork(d, container, ctx) {
@@ -55,6 +57,7 @@ export function renderWork(d, container, ctx) {
     [
       { key: 'assignments', label: '作业', render: () => T.renderAssignments(d.assignments) },
       { key: 'problems', label: '题库', render: () => S.renderProblemList(d.problems, container, ctx) },
+      { key: 'materials', label: '课件', render: () => bodyOnly(M.renderMaterials(d.materials, container, ctx)) },
     ],
     container
   );

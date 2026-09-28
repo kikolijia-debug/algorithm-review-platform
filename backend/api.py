@@ -312,6 +312,9 @@ def api_problems(ctx):
     if q.get("topic"):
         sql += " AND topics LIKE ?"
         args.append("%" + q["topic"] + "%")
+    if q.get("chapter"):
+        sql += " AND chapter=?"
+        args.append(q["chapter"])
     if q.get("q"):
         sql += " AND (title LIKE ? OR tags LIKE ?)"
         args += ["%" + q["q"] + "%", "%" + q["q"] + "%"]
@@ -376,7 +379,7 @@ def api_problem_create(ctx):
     pid = db.ex(
         "INSERT INTO problems(course_id,title,type,difficulty,topics,statement,input_format,"
         "output_format,constraints,samples,time_limit_ms,memory_limit_mb,score,rubric,created_by,"
-        "created_at,tags) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "created_at,tags,chapter) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (
             b.get("course_id") or db.q1("SELECT id FROM courses ORDER BY id")["id"],
             b.get("title") or "未命名题目", b.get("type") or "programming",
@@ -387,6 +390,7 @@ def api_problem_create(ctx):
             int(b.get("memory_limit_mb") or 256), int(b.get("score") or 100),
             db.jdumps(b.get("rubric") or []), ctx["user"]["id"], db.now(),
             db.jdumps(b.get("tags") or []),
+            b.get("chapter") or None,
         ),
     )
     for i, tc in enumerate(b.get("test_cases") or []):
@@ -406,7 +410,7 @@ def api_problem_update(ctx):
     b = ctx["body"]
     sets, args = [], []
     for k in ("title", "type", "difficulty", "statement", "input_format", "output_format",
-              "constraints", "time_limit_ms", "memory_limit_mb", "score"):
+              "constraints", "time_limit_ms", "memory_limit_mb", "score", "chapter"):
         if b.get(k) is not None:
             sets.append(k + "=?")
             args.append(b[k])
@@ -519,6 +523,14 @@ def api_assignments(ctx):
         a["students"] = db.q1(
             "SELECT COUNT(*) c FROM course_members WHERE course_id=? AND role='student'",
             (a["course_id"],))["c"]
+        # 作业完成情况：通过人数与平均分（按每人的最高分统计）
+        a["accepted_users"] = db.q1(
+            "SELECT COUNT(DISTINCT user_id) c FROM submissions "
+            "WHERE assignment_id=? AND verdict='Accepted'", (a["id"],))["c"]
+        avg = db.q1(
+            "SELECT AVG(best) v FROM (SELECT MAX(score) best FROM submissions "
+            "WHERE assignment_id=? GROUP BY user_id, problem_id)", (a["id"],))
+        a["avg_score"] = round(avg["v"], 1) if avg and avg["v"] is not None else None
         if a["peer_review"]:
             a["my_review_pending"] = db.q1(
                 "SELECT COUNT(*) c FROM allocations WHERE assignment_id=? AND reviewer_id=? "
@@ -529,6 +541,9 @@ def api_assignments(ctx):
             a["pending_reviews"] = db.q1(
                 "SELECT COUNT(*) c FROM allocations WHERE assignment_id=? AND status='pending'",
                 (a["id"],))["c"]
+            a["review_total"] = db.q1(
+                "SELECT COUNT(*) c FROM allocations WHERE assignment_id=?", (a["id"],))["c"]
+            a["review_done"] = a["review_total"] - a["pending_reviews"]
         due = parse_dt(a["due_at"])
         a["overdue"] = bool(due and due < now)
     return ok(rows)
@@ -1290,3 +1305,6 @@ from . import api_ext  # noqa: E402,F401
 
 # 班级管理接口
 from . import api_classes  # noqa: E402,F401
+
+# 课件库与章节接口
+from . import api_materials  # noqa: E402,F401

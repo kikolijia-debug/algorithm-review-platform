@@ -1,0 +1,168 @@
+{
+  "imported_at": "2026-09-28 14:36:15",
+  "source_dir": "C:\\Users\\kiko\\Desktop\\算法",
+  "total_bytes": 32762843,
+  "file_count": 16,
+  "files": [
+    {
+      "chapter": "ch0",
+      "slug": "ch00-overview",
+      "source": "chapter0 (1).pdf",
+      "filename": "ch00-overview.pdf",
+      "title": "Chapter 0：课程概述",
+      "size_bytes": 1091591,
+      "pages": 25,
+      "sha256": "fd5ce790b7a1918d6ce10077dbf6a4bef10e24179f786dee14706c9e2e16a8cc"
+    },
+    {
+      "chapter": "ch0",
+      "slug": "ch00-course-guide",
+      "source": "算法设计与分析课程作业指南2026.pdf",
+      "filename": "ch00-course-guide.pdf",
+      "title": "课程作业指南（2026）",
+      "size_bytes": 254292,
+      "pages": 5,
+      "sha256": "12c4899ee3279840853fcc333734b1830bb936c148122d03d0a4fd9d2d09e009"
+    },
+    {
+      "chapter": "ch1",
+      "slug": "ch01-asymptotic",
+      "source": "chapter1.pdf",
+      "filename": "ch01-asymptotic.pdf",
+      "title": "Chapter 1：Asymptotic Analysis",
+      "size_bytes": 1565244,
+      "pages": 35,
+      "sha256": "0edfb47d0bc472d0d6b792c8a10c8b829a8cf127aae2d8a4fbba8d716e332549"
+    },
+    {
+      "chapter": "ch2",
+      "slug": "ch02-graph-search",
+      "source": "chapter2.pdf",
+      "filename": "ch02-graph-search.pdf",
+      "title": "Chapter 2：Graph Search",
+      "size_bytes": 1891710,
+      "pages": 34,
+      "sha256": "a47764ed5aeddb364fcb84e4548d547df17b041441df0adc262104dbd55359ee"
+    },
+    {
+      "chapter": "ch3",
+      "slug": "ch03-greedy",
+      "source": "chapter3.pdf",
+      "filename": "ch03-greedy.pdf",
+      "title": "Chapter 3-1：Greedy",
+      "size_bytes": 1710821,
+      "pages": 30,
+      "sha256": "c1ec425adb6876dfa745cb4c4847c98efc7c7b4362b11b03b3251eba2a813c76"
+    },
+    {
+      "chapter": "ch4",
+      "slug": "ch04-divide-conquer-i",
+      "source": "chapter4-1.pdf",
+      "filename": "ch04-divide-conquer-i.pdf",
+      "title": "Chapter 4-1：Divide And Conquer",
+      "size_bytes": 1979914,
+      "pages": 41,
+      "sha256": "a8916a86cba7bbf5d519e2728b17e42b2d31477a4a0ef61acb57703d41c2a451"
+    },
+    {
+      "chapter": "ch4",
+      "slug": "ch04-divide-conquer-ii",
+      "source": "chapter4-2.pdf",
+      "filename": "ch04-divide-conquer-ii.pdf",
+      "title": "Chapter 4-2：Divide And Conquer II（主定理）",
+      "size_bytes": 1566753,
+      "pages": 36,
+      "sha256": "ee316dccece9f0480d88e44faf1b84366d2dbad852f17d0e3a1965483cbefa05"
+    },
+    {
+      "chapter": "ch5",
+      "slug": "ch05-dynamic-programming",
+      "source": "chapter5.pdf",
+      "filename": "ch05-dynamic-programming.pdf",
+      "title": "Chapter 5：Dynamic Programming",
+      "size_bytes": 2751450,
+      "pages": 72,
+      "sha256": "96f9e032d2393b43158a7b99f89a04db35084888eae62fd5ba837ce708f554ac"
+    },
+    {
+      "chapter": "ch6",
+      "slug": "ch06-network-flow",
+      "source": "chapter6.pdf",
+      "filename": "ch06-network-flow.pdf",
+      "title": "Chapter 6：Network Flow",
+      "size_bytes": 2911288,
+      "pages": 67,
+      "sha256": "e8a37408b41a5dda178dbba36b5387588af250c99e853d8554609a8daa432c3f"
+    },
+    {
+      "chapter": "ch7",
+      "slug": "ch07-union-find",
+      "source": "chapter7-union-find.pdf",
+      "filename": "ch07-union-find.pdf",
+      "title": "Chapter 7：Union-find",
+      "size_bytes": 2008528,
+      "pages": 31,
+      "sha256": "bf42a5834641023fa494af96909acb77731d69a21d60559cae4d16e4da282313"
+    },
+    {
+      "chapter": "ch8",
+      "slug": "ch08-segment-tree",
+      "source": "08.线段树.pdf",
+      "filename": "ch08-segment-tree.pdf",
+      "title": "Chapter 8：线段树与树状数组",
+      "size_bytes": 3038270,
+      "pages": 107,
+      "sha256": "bd203eec96b41585ca4f98376e30e8155d2f53fe35599f36fbd2e863c9aba389"
+    },
+    {
+      "chapter": "ch9",
+      "slug": "ch09-fenwick-tree",
+      "source": "树状数组.pdf",
+      "filename": "ch09-fenwick-tree.pdf",
+      "title": "Chapter 9：树状数组",
+      "size_bytes": 3580778,
+      "pages": 32,
+      "sha256": "b8e120d415df35fd3714dbd34583fbb03c786ac33558a183a56386001bffca17"
+    },
+    {
+      "chapter": "ch10",
+      "slug": "ch10-kmp",
+      "source": "kmp帮助理解版.pdf",
+      "filename": "ch10-kmp.pdf",
+      "title": "Chapter 10：KMP（理解版）",
+      "size_bytes": 1658914,
+      "pages": 25,
+      "sha256": "c72f6d77511c1ce8c5c8b406a91812fc1bb1ef9dfbf27205b73a3b38bdcc1607"
+    },
+    {
+      "chapter": "ch10",
+      "slug": "ch10-kmp-exam",
+      "source": "KMP-考试版.pdf",
+      "filename": "ch10-kmp-exam.pdf",
+      "title": "Chapter 10：KMP（考试版）",
+      "size_bytes": 653873,
+      "pages": 41,
+      "sha256": "ddeb71bb03c396159828df48782cfeba13a75606a3e930e0dd3a2c19deeb8fe0"
+    },
+    {
+      "chapter": "ch11",
+      "slug": "ch11-np-completeness",
+      "source": "chapter11.pdf",
+      "filename": "ch11-np-completeness.pdf",
+      "title": "Chapter 11：NP 完全性",
+      "size_bytes": 2575505,
+      "pages": 43,
+      "sha256": "5c74f20e2e579524869ba34f5384581491fcc9c5af5fd10cbd61e98764346994"
+    },
+    {
+      "chapter": "ch11",
+      "slug": "ch11-np-completeness-ii",
+      "source": "chapter11-2.pdf",
+      "filename": "ch11-np-completeness-ii.pdf",
+      "title": "Chapter 11-2：NP 完全性（续）",
+      "size_bytes": 3523912,
+      "pages": 30,
+      "sha256": "d0fb139c6f22f00fb793b86ee77632021012e1b49db720eb25106dfb8b08cd81"
+    }
+  ]
+}

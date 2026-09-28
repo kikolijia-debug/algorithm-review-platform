@@ -24,6 +24,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from backend import courseware as CW  # noqa: E402
 from backend import db, problem_bank as PB  # noqa: E402
 from backend.algo import aggregation as AG  # noqa: E402
 from backend.algo import anomaly as AN  # noqa: E402
@@ -48,19 +49,10 @@ CODE_RUBRIC = [
 
 SEED = 20260926
 
+#: 知识点直接取自实际授课课件的章节结构（backend/courseware.py），
+#: 保证「题库 topics — 知识点统计 — 课件章节」三者是同一套命名。
 KNOWLEDGE_POINTS = [
-    ("算法基础与复杂度分析", "第 1 章", "渐进记号、最好/最坏/平均情况、均摊分析"),
-    ("分治与递归", "第 2 章", "递归式求解、主定理、归并排序、逆序对"),
-    ("图搜索与遍历", "第 3 章", "BFS、DFS、连通性、环检测"),
-    ("贪心算法", "第 4 章", "贪心选择性质、交换论证、活动安排、区间覆盖"),
-    ("动态规划", "第 5 章", "状态设计、无后效性、背包、序列问题"),
-    ("图优化算法", "第 6 章", "最短路、最小生成树、网络流"),
-    ("高级数据结构", "第 7 章", "并查集、树状数组、线段树"),
-    ("字符串匹配", "第 8 章", "KMP、Trie、哈希"),
-    ("二分与三分", "第 9 章", "二分答案、单调性、边界处理"),
-    ("算法正确性证明", "第 10 章", "归纳法、交换论证、反例构造"),
-    ("复杂度实验方法", "第 11 章", "实测计时、规模曲线、复杂度阶拟合"),
-    ("近似与随机算法", "第 12 章", "近似比、随机化、概率分析"),
+    (c["topic"], f"{c['no']} {c['title']}", c["summary"]) for c in CW.CHAPTERS
 ]
 
 FIRST_NAMES = list(
@@ -105,7 +97,7 @@ class Seeder:
                 "test_cases", "assignments", "assignment_problems", "submissions",
                 "test_results", "subjective_submissions", "allocations", "reviews",
                 "anomalies", "events", "experiments", "notices", "settings",
-                "sessions", "classes",
+                "sessions", "classes", "materials",
             ]:
                 conn.execute(f"DELETE FROM {t}")
             conn.execute("DELETE FROM sqlite_sequence")
@@ -116,6 +108,7 @@ class Seeder:
         ids.update(self._users())
         ids.update(self._course(ids))
         ids.update(self._knowledge(ids))
+        ids.update(self._materials(ids))
         ids.update(self._problems(ids))
         ids.update(self._assignments(ids))
         self._submissions(ids)
@@ -214,6 +207,31 @@ class Seeder:
         return {"knowledge_points": db.rows2dicts(db.q("SELECT * FROM knowledge_points ORDER BY id"))}
 
     # ------------------------------------------------------------------
+    def _materials(self, ids) -> dict:
+        """把导入的授课课件登记到课件库（PDF 本体在 frontend/courseware/）。"""
+        rows = CW.material_rows()
+        if not rows:
+            self.log("  课件：未导入（先运行 tools/import_courseware.py）")
+            return {"materials": []}
+        db.exmany(
+            "INSERT INTO materials(course_id,chapter,chapter_title,title,filename,url,"
+            "size_bytes,pages,sha256,topics,summary,order_index,uploaded_by,created_at) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            [
+                (
+                    ids["course_id"], r["chapter"], r["chapter_title"], r["title"],
+                    r["filename"], r["url"], r["size_bytes"], r["pages"], r["sha256"],
+                    db.jdumps(r["topics"]), r["summary"], r["order_index"],
+                    ids["teacher"]["id"], db.now(),
+                )
+                for r in rows
+            ],
+        )
+        total = sum(r["size_bytes"] for r in rows)
+        self.log(f"  课件 {len(rows)} 份（{total / 1048576:.1f} MB），覆盖 {len(CW.CHAPTERS)} 个章节")
+        return {"materials": rows}
+
+    # ------------------------------------------------------------------
     def _problems(self, ids) -> dict:
         teacher = ids["teacher"]["id"]
         cid = ids["course_id"]
@@ -228,13 +246,14 @@ class Seeder:
             pid = db.ex(
                 "INSERT INTO problems(course_id,title,type,difficulty,topics,statement,input_format,"
                 "output_format,constraints,samples,time_limit_ms,memory_limit_mb,score,rubric,"
-                "created_by,created_at,tags) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "created_by,created_at,tags,chapter) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     cid, p["title"], "programming", p["difficulty"], db.jdumps(p["topics"]),
                     p["statement"], p["input_format"], p["output_format"], p["constraints"],
                     db.jdumps(samples), p["time_limit_ms"], p["memory_limit_mb"], 100,
                     db.jdumps(CODE_RUBRIC),
                     teacher, db.now(), db.jdumps(p.get("tags", [])),
+                    p.get("chapter"),
                 ),
             )
             db.exmany(
@@ -252,11 +271,12 @@ class Seeder:
             pid = db.ex(
                 "INSERT INTO problems(course_id,title,type,difficulty,topics,statement,input_format,"
                 "output_format,constraints,samples,time_limit_ms,memory_limit_mb,score,rubric,"
-                "created_by,created_at,tags) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "created_by,created_at,tags,chapter) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     cid, s["title"], s["type"], s["difficulty"], db.jdumps(s["topics"]),
                     s["statement"], "", "", "", db.jdumps([{"sections": s["sections"]}]),
                     0, 0, 100, db.jdumps(PB.RUBRIC_STANDARD), teacher, db.now(), db.jdumps([]),
+                    s.get("chapter"),
                 ),
             )
             subj.append({"id": pid, "meta": s})
@@ -289,40 +309,64 @@ class Seeder:
             return aid
 
         A = {
-            "a1": mk("编程作业一：分治与贪心",
-                     "覆盖分治（归并、逆序对）与贪心（活动安排）两类经典算法，重点考察复杂度是否达标。",
-                     [by_key["KADANE"], by_key["INVERSION"], by_key["ACTIVITY"]],
-                     db.days_ago(30, 8, 0), db.days_ago(16, 23, 59), None, "closed"),
-            "a2": mk("编程作业二：动态规划专题",
-                     "从状态设计角度理解 0/1 背包与序列型 DP，注意一维数组的枚举方向。",
-                     [by_key["KNAPSACK"], by_key["LCS"]],
-                     db.days_ago(20, 8, 0), db.days_ago(9, 23, 59), None, "closed"),
-            "a3": mk("编程作业三：图与数据结构",
-                     "BFS、Dijkstra 与并查集三个必须掌握的图/数据结构模板题。",
-                     [by_key["MAZE"], by_key["DIJKSTRA"], by_key["DSU"]],
-                     db.days_ago(6, 8, 0), db.days_ahead(4, 23, 59), None, "published"),
-            "a4": mk("算法分析报告一：复杂度对比与贪心证明",
-                     "主观题作业，提交后由同学匿名互评（每人评 3 份）。请务必按评分细则分点作答。",
-                     [subj[0], subj[1]],
-                     db.days_ago(28, 8, 0), db.days_ago(14, 23, 59), db.days_ago(7, 23, 59),
+            # ---- 编程作业（自动评测），按课件章节组织 ----
+            "a1": mk("编程作业一：贪心与分治（第 3–4 章）",
+                     "对应课件 Chapter 3 区间调度 / 区间分割 / 最小延迟调度，"
+                     "以及 Chapter 4 的归并排序与逆序对。",
+                     [by_key["ACTIVITY"], by_key["PARTITION"], by_key["LATENESS"],
+                      by_key["INVERSION"]],
+                     db.days_ago(34, 8, 0), db.days_ago(20, 23, 59), None, "closed"),
+            "a2": mk("编程作业二：动态规划（第 5 章）",
+                     "最大子数组、0/1 背包、序列对齐（编辑距离）与最长公共子序列，"
+                     "重点考察状态定义与递推方向。",
+                     [by_key["KADANE"], by_key["KNAPSACK"], by_key["EDITDIST"], by_key["LCS"]],
+                     db.days_ago(26, 8, 0), db.days_ago(13, 23, 59), None, "closed"),
+            "a3": mk("编程作业三：图的搜索与并查集（第 2、7 章）",
+                     "BFS 最短路、拓扑排序、连通块计数与 Kruskal 最小生成树。",
+                     [by_key["MAZE"], by_key["TOPO"], by_key["DSU"], by_key["MST"]],
+                     db.days_ago(12, 8, 0), db.days_ahead(3, 23, 59), None, "published"),
+            "a4": mk("编程作业四：线段树、树状数组与网络流（第 6、8、9 章）",
+                     "两道区间数据结构题 + 一道最大流，重点考察复杂度是否达标。",
+                     [by_key["SEGTREE"], by_key["BIT"], by_key["MAXFLOW"]],
+                     db.days_ago(7, 8, 0), db.days_ahead(7, 23, 59), None, "published"),
+            "a5": mk("编程作业五：字符串匹配与综合练习（第 10 章）",
+                     "KMP 为主，另附带权最短路与二分答案两道拓展题。",
+                     [by_key["KMP"], by_key["DIJKSTRA"], by_key["CUT"]],
+                     db.days_ago(3, 8, 0), db.days_ahead(11, 23, 59), None, "published"),
+            # ---- 主观题作业（匿名互评）----
+            "a6": mk("算法分析报告一：复杂度与动态规划（第 1、5 章）",
+                     "主观题作业，提交后由同学匿名互评。请按评分细则分点作答。",
+                     [subj[0], subj[3]],
+                     db.days_ago(32, 8, 0), db.days_ago(18, 23, 59), db.days_ago(11, 23, 59),
                      "closed", peer=1, k=3, maxload=4),
-            "a5": mk("算法设计报告二：环检测与背包建模",
-                     "开放式设计题 + 算法设计报告。互评进行中，请注意评审截止时间。",
-                     [subj[2], subj[3]],
-                     db.days_ago(12, 8, 0), db.days_ago(4, 23, 59), db.days_ahead(6, 23, 59),
+            "a7": mk("算法设计报告二：贪心正确性与有向图环检测（第 2、3 章）",
+                     "证明题 + 开放性设计题。互评进行中，请注意评审截止时间。",
+                     [subj[1], subj[2]],
+                     db.days_ago(14, 8, 0), db.days_ago(5, 23, 59), db.days_ahead(7, 23, 59),
                      "reviewing", peer=1, k=3, maxload=4),
-            "a6": mk("综合练习：字符串匹配与二分答案",
-                     "KMP 与二分答案的入门到进阶练习，鼓励反复提交直到全部通过。",
-                     [by_key["KMP"], by_key["CUT"]],
-                     db.days_ago(2, 8, 0), db.days_ahead(8, 23, 59), None, "published"),
-            # 代码互评：对象是同学写的代码，走同一套分配/聚合/异常检测流程
-            "a7": mk("代码互评：图算法实现评析",
-                     "对同学提交的代码进行匿名评审，从正确性、复杂度、清晰度与健壮性四个维度打分。",
-                     [by_key["MAZE"], by_key["DIJKSTRA"]],
-                     db.days_ago(18, 8, 0), db.days_ago(11, 23, 59), db.days_ago(5, 23, 59),
-                     "closed", peer=1, k=3, maxload=4),
+            "a8": mk("算法分析报告三：主定理与并查集复杂度（第 4、7 章）",
+                     "主定理求解递归式、Karatsuba / Strassen 分析，以及并查集两种启发式的复杂度论证。",
+                     [subj[4], subj[6]],
+                     db.days_ago(10, 8, 0), db.days_ahead(4, 23, 59), db.days_ahead(12, 23, 59),
+                     "published", peer=1, k=3, maxload=4),
+            "a9": mk("算法分析报告四：最大流最小割与 NP 完全性（第 6、11 章）",
+                     "两道证明题，重点考察规约与证明链条是否完整。",
+                     [subj[5], subj[8]],
+                     db.days_ago(6, 8, 0), db.days_ahead(8, 23, 59), db.days_ahead(16, 23, 59),
+                     "published", peer=1, k=3, maxload=4),
+            "a10": mk("算法分析报告五：字符串匹配与数据结构选型（第 8、10 章）",
+                      "KMP 均摊分析与线段树/树状数组选型设计。",
+                      [subj[7], subj[9]],
+                      db.days_ago(4, 8, 0), db.days_ahead(10, 23, 59), db.days_ahead(18, 23, 59),
+                      "published", peer=1, k=3, maxload=4),
+            # ---- 代码互评：评审对象是同学写的代码 ----
+            "a11": mk("代码互评：图算法与数据结构实现评析",
+                      "对同学提交的代码进行匿名互评，从正确性、复杂度、清晰度与健壮性四个维度打分。",
+                      [by_key["MAZE"], by_key["DSU"], by_key["SEGTREE"]],
+                      db.days_ago(21, 8, 0), db.days_ago(14, 23, 59), db.days_ago(8, 23, 59),
+                      "closed", peer=1, k=3, maxload=4),
         }
-        self.log("  作业 6 次")
+        self.log(f"  作业 {len(A)} 次（5 次编程 + 5 次主观互评 + 1 次代码互评）")
         return {"assignments": A}
 
     # ------------------------------------------------------------------
@@ -332,7 +376,10 @@ class Seeder:
         studs = ids["students"]
         abilities = ids["abilities"]
         A = ids["assignments"]
-        plan = [(A["a1"], 0.97), (A["a2"], 0.95), (A["a3"], 0.78), (A["a6"], 0.5)]
+        plan = [
+            (A["a1"], 0.97), (A["a2"], 0.95), (A["a3"], 0.80),
+            (A["a4"], 0.66), (A["a5"], 0.52),
+        ]
         sub_rows, tc_rows = [], []
         dist: dict[str, int] = {}
         for aid, prob_rate in plan:
@@ -464,7 +511,7 @@ class Seeder:
         speed[rusher] *= 0.04
         noise[allmax] = 0.7
 
-        for aid, status in ((A["a4"], "done"), (A["a5"], "reviewing")):
+        for aid, status in ((A["a6"], "done"), (A["a7"], "reviewing")):
             tw = db.q1("SELECT reviews_per_submission,max_load FROM assignments WHERE id=?", (aid,))
             k, maxload = tw["reviews_per_submission"], tw["max_load"]
             probs = db.rows2dicts(
@@ -564,7 +611,7 @@ class Seeder:
         正好用来演示异常检测与可信度加权。
         """
         rng = self.rng
-        aid = ids["assignments"]["a7"]
+        aid = ids["assignments"]["a11"]
         studs = ids["students"]
         abilities = ids["abilities"]
         klass = {s["id"]: s["class_name"] for s in studs}
@@ -838,12 +885,18 @@ class Seeder:
             "INSERT INTO notices(course_id,title,content,author_id,created_at) VALUES(?,?,?,?,?)",
             [
                 (ids["course_id"], "互评通道已开放",
-                 "《算法设计报告二》的匿名互评已开放，请在本周日 23:59 前完成 3 份评审，"
+                 "《算法设计报告二：贪心正确性与有向图环检测》的匿名互评已开放，"
+                 "请在本周日 23:59 前完成 3 份评审，"
                  "评审时请按评分细则分点给分。",
                  ids["teacher"]["id"], db.days_ago(3, 10, 0)),
                 (ids["course_id"], "编程作业三延长 2 天",
-                 "考虑到 Dijkstra 堆优化版本调试耗时较久，作业三截止时间顺延两天。",
+                 "拓扑排序与 Kruskal 两道题需要写完并调通，作业三截止时间顺延两天；"
+                 "对应的课件在「课程资源 → Chapter 2 / Chapter 7」。",
                  ids["teacher"]["id"], db.days_ago(1, 16, 30)),
+                (ids["course_id"], "课件已按章节上传",
+                 "12 个章节的授课课件都放到「课程资源」里了，做题前可以先过一遍对应章节；"
+                 "每章的课件页面右上角可以直接跳到本章题目。",
+                 ids["teacher"]["id"], db.days_ago(5, 9, 0)),
             ],
         )
         # 标记「当前数据是系统生成的演示数据」，前端会在顶栏显示提示。

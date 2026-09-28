@@ -172,10 +172,17 @@ function read(path, q) {
     case 'problems':
       if (tail.length === 1) {
         return pick(problems, 'type', q.type)
+          .filter((p) => !q.chapter || p.chapter === q.chapter)
           .filter((p) => !q.q || p.title.includes(q.q))
           .map(problemSummary);
       }
       return problemDetail(Number(tail[1]));
+    case 'chapters':
+      return chapterOverview();
+    case 'materials':
+      return materialList(q);
+    case 'stats':
+      return publicStats();
     case 'assignments':
       if (tail.length === 1) return assignments.map(assignmentSummary);
       if (tail[2] === 'allocations') return allocationsOf(Number(tail[1]));
@@ -208,6 +215,44 @@ function read(path, q) {
       break;
   }
   return fail('演示模式下暂未实现的接口：' + path);
+}
+
+/* 课件与章节：静态演示模式下同样按章节组织，保证页面可用 */
+
+function materialList(q) {
+  const rows = (DS.materials || []).filter((m) => !q.chapter || m.chapter === q.chapter);
+  const total = rows.reduce((a, m) => a + (m.size_bytes || 0), 0);
+  return {
+    rows: rows.map((m) => ({ ...m, size_mb: Math.round((m.size_bytes || 0) / 1048576 * 100) / 100 })),
+    chapters: chapterOverview(),
+    homepage: DS.course.homepage || '',
+    total_mb: Math.round(total / 1048576 * 10) / 10,
+  };
+}
+
+function chapterOverview() {
+  const chapters = DS.chapters || [];
+  const mats = DS.materials || [];
+  return chapters.map((c) => ({
+    ...c,
+    material_count: mats.filter((m) => m.chapter === c.key).length,
+    problem_count: DS.problems.filter((p) => p.chapter === c.key).length,
+  }));
+}
+
+function publicStats() {
+  return {
+    students: DS.students.length,
+    problems: DS.problems.length,
+    programming: DS.problems.filter((p) => p.type === 'programming').length,
+    subjective: DS.problems.filter((p) => p.type !== 'programming').length,
+    submissions: DS.stats ? DS.stats.submissions : DS.submissions.length,
+    reviews: DS.reviews.length,
+    test_cases: DS.problems.reduce((a, p) => a + (p.n_test_cases || 0), 0),
+    chapters: (DS.chapters || []).length,
+    materials: (DS.materials || []).length,
+    assignments: DS.assignments.length,
+  };
 }
 
 function problemSummary(p) {
