@@ -605,7 +605,7 @@ async function openSubjectiveDrawer(userId, problemId) {
 }
 
 /** 某份互评结果里，谁评的、给了几分、写了什么意见 */
-function openReviewDetail(row, problemTitle) {
+export function openReviewDetail(row, problemTitle) {
   const details = row.details || [];
   U.drawer(`${row.name} · ${problemTitle} 的评审明细`, h('div', {},
     h('div', { class: 'row mb16', style: { gap: '8px', flexWrap: 'wrap' } },

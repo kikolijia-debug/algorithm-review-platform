@@ -12,7 +12,7 @@ import { ok, fail, info, confirmDialog } from '../core/toast.js';
 import * as U from '../core/ui.js';
 import * as C from '../core/charts.js';
 import { PROBLEM_TYPE, ANOMALY_TYPE, METHOD_LABEL, ALLOC_LABEL, masteryTone, verdictColorOf } from '../core/format.js';
-import { openSubmissionDrawerById } from './teacher-core.js';
+import { openReviewDetail, openSubmissionDrawerById } from './teacher-core.js';
 
 /* ==================================================== 学习过程分析 */
 
