@@ -36,16 +36,37 @@ def build() -> dict:
     )
     problems = rows("SELECT * FROM problems WHERE course_id=? ORDER BY id", (cid,))
     assignments = rows("SELECT * FROM assignments WHERE course_id=? ORDER BY id DESC", (cid,))
-    submissions = rows(
+    # 静态演示模式下前端要据此还原「作业包含哪些题」，所以随作业一起导出
+    ap_rows = rows(
+        "SELECT ap.assignment_id, ap.problem_id FROM assignment_problems ap "
+        "JOIN assignments a ON a.id=ap.assignment_id WHERE a.course_id=? "
+        "ORDER BY ap.assignment_id, ap.order_index",
+        (cid,),
+    )
+    ap_map: dict = {}
+    for r in ap_rows:
+        ap_map.setdefault(r["assignment_id"], []).append(r["problem_id"])
+    for a in assignments:
+        a["problem_ids"] = json.dumps(ap_map.get(a["id"], []))
+    # 每个作业各取最近若干条（而不是只取全局最新的几百条），
+    # 否则静态演示里点开旧作业会看到「全班都没交」。
+    base_sql = (
         "SELECT s.id,s.assignment_id,s.problem_id,s.user_id,s.language,s.verdict,s.score,s.time_ms,"
         "s.memory_kb,s.attempt_no,s.submitted_at,s.detail,u.name AS user_name,u.class_name,"
         "p.title AS problem_title FROM submissions s JOIN problems p ON p.id=s.problem_id "
-        "JOIN users u ON u.id=s.user_id ORDER BY s.id DESC LIMIT 400"
+        "JOIN users u ON u.id=s.user_id "
     )
+    submissions: list = []
+    for a in assignments:
+        submissions += rows(base_sql + "WHERE s.assignment_id=? ORDER BY s.id DESC LIMIT 60", (a["id"],))
+    submissions += rows(base_sql + "WHERE s.assignment_id IS NULL ORDER BY s.id DESC LIMIT 40")
+    seen_ids = set()
+    submissions = [s for s in submissions if not (s["id"] in seen_ids or seen_ids.add(s["id"]))]
+    submissions.sort(key=lambda r: -r["id"])
     # 只保留少量源码，避免演示包过大
     codes = {
         r["id"]: r["source_code"]
-        for r in rows("SELECT id,source_code FROM submissions ORDER BY id DESC LIMIT 60")
+        for r in rows("SELECT id,source_code FROM submissions ORDER BY id DESC LIMIT 120")
     }
     for s in submissions:
         s["source_code"] = codes.get(s["id"], "")

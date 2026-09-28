@@ -183,6 +183,9 @@ function read(path, q) {
       return materialList(q);
     case 'stats':
       return publicStats();
+    case 'classes':
+      if (tail[1] === 'unassigned') return [];
+      return classList();
     case 'assignments':
       if (tail.length === 1) return assignments.map(assignmentSummary);
       if (tail[2] === 'allocations') return allocationsOf(Number(tail[1]));
@@ -257,10 +260,51 @@ function publicStats() {
 }
 
 /** 单个作业的全班完成情况（静态演示模式下用导出的提交快照现算） */
+/** 班级列表：演示数据里学生按 class_name 分成两个班，这里现算人数与通过率 */
+function classList() {
+  const groups = new Map();
+  DS.students.forEach((s) => {
+    const name = s.class_name || '未分班';
+    if (!groups.has(name)) groups.set(name, []);
+    groups.get(name).push(s);
+  });
+  let seq = 0;
+  return Array.from(groups.entries()).map(([name, members]) => {
+    const ids = new Set(members.map((m) => m.id));
+    const mine = DS.submissions.filter((s) => ids.has(s.user_id));
+    const perProblem = new Map();
+    mine.forEach((s) => {
+      const key = s.user_id + '|' + s.problem_id;
+      const cur = perProblem.get(key) || { ok: 0, best: 0 };
+      cur.ok = cur.ok || (s.verdict === 'Accepted' ? 1 : 0);
+      cur.best = Math.max(cur.best, s.score || 0);
+      perProblem.set(key, cur);
+    });
+    const pairs = Array.from(perProblem.values());
+    const passed = pairs.filter((p) => p.ok).length;
+    const avg = pairs.length ? pairs.reduce((a, p) => a + p.best, 0) / pairs.length : null;
+    seq += 1;
+    return {
+      id: 9000 + seq, name, description: '',
+      course_id: DS.course.id,
+      invite_code: 'CLS0' + (260 + seq),
+      member_count: members.length,
+      active_count: new Set(mine.map((s) => s.user_id)).size,
+      ac_rate: pairs.length ? passed / pairs.length : 0,
+      total_submissions: mine.length,
+      avg_score: avg == null ? null : Math.round(avg * 10) / 10,
+    };
+  });
+}
+
 function assignmentProgress(aid) {
   const a = DS.assignments.find((x) => x.id === aid);
   if (!a) return fail('作业不存在');
-  const problems = a.problems || [];
+  // 数据集里的 assignments 是数据库原始行，题目要从 assignment_problems 推导
+  const problems = assignmentsOf(aid).map((pid) => {
+    const p = DS.problems.find((x) => x.id === pid) || {};
+    return { id: pid, title: p.title, type: p.type, score: p.score || 100, difficulty: p.difficulty };
+  });
   const full = problems.reduce((s, p) => s + (p.score || 100), 0);
   const subs = DS.submissions.filter((s) => s.assignment_id === aid);
   const subj = (DS.subjective || []).filter((s) => s.assignment_id === aid);
