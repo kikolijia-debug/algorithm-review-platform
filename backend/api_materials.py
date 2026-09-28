@@ -18,7 +18,7 @@ from datetime import datetime
 
 from . import courseware as CW
 from . import db
-from .api import err, is_teacher, jload, ok, route, uid_rows
+from .api import active_course_id, err, is_teacher, jload, ok, route, uid_rows
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 UPLOAD_DIR = os.path.join(ROOT, "frontend", "courseware")
@@ -29,18 +29,7 @@ MAX_UPLOAD_BYTES = 60 * 1024 * 1024
 
 def _course_id(ctx) -> int | None:
     cid = ctx["query"].get("course_id") or (ctx["body"].get("course_id") if ctx["body"] else None)
-    if cid:
-        return int(cid)
-    rows = uid_rows("SELECT id FROM courses ORDER BY id")
-    if not rows:
-        return None
-    if is_teacher(ctx["user"]):
-        return rows[0]["id"]
-    mine = db.q1(
-        "SELECT course_id FROM course_members WHERE user_id=? ORDER BY course_id LIMIT 1",
-        (ctx["user"]["id"],),
-    )
-    return mine["course_id"] if mine else rows[0]["id"]
+    return active_course_id(ctx, cid)
 
 
 def _safe_slug(name: str) -> str:

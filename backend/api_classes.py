@@ -16,10 +16,13 @@ from __future__ import annotations
 import hashlib
 
 from . import db
-from .api import err, ok, route, uid_rows
+from .api import active_course_id, err, ok, route, uid_rows
 
 
-def _first_course():
+def _first_course(ctx=None):
+    """当前账号的活动课程；没有 ctx（内部调用）时退回库里的第一门课。"""
+    if ctx is not None:
+        return active_course_id(ctx, ctx["query"].get("course_id"))
     row = db.q1("SELECT id FROM courses ORDER BY id LIMIT 1")
     return row["id"] if row else None
 
@@ -112,7 +115,7 @@ def _class_stats(class_id: int, course_id: int) -> dict:
 @route("GET", "/api/classes")
 def api_classes(ctx):
     """班级列表（含人数与通过率）。学生只会看到自己所在的班级。"""
-    course_id = ctx["query"].get("course_id") or _first_course()
+    course_id = _first_course(ctx)
     rows = uid_rows("SELECT * FROM classes WHERE course_id=? ORDER BY name", (course_id,))
     mine = None
     if ctx["user"]["role"] == "student":
@@ -131,7 +134,7 @@ def api_classes(ctx):
 @route("GET", "/api/classes/unassigned", "teacher")
 def api_unassigned(ctx):
     """未分班的学生，用于「添加到班级」的选择器。"""
-    course_id = ctx["query"].get("course_id") or _first_course()
+    course_id = _first_course(ctx)
     return ok(
         uid_rows(
             "SELECT u.id,u.name,u.student_no,u.username FROM course_members m "
@@ -146,7 +149,7 @@ def api_unassigned(ctx):
 @route("POST", "/api/classes", "teacher")
 def api_class_create(ctx):
     b = ctx["body"]
-    course_id = b.get("course_id") or _first_course()
+    course_id = _first_course(ctx) or b.get("course_id")
     name = (b.get("name") or "").strip()
     if not name:
         return err(400, "班级名称不能为空")

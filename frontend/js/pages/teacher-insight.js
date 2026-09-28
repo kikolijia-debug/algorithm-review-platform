@@ -639,7 +639,7 @@ export function renderStudentReport({ report, problems }) {
 export async function loadReviewAdmin(ctx) {
   const [assignments, students] = await Promise.all([
     api.get('/api/assignments'),
-    api.get('/api/users', { role: 'student' }).catch(() => []),
+    api.get('/api/users', { role: 'student', in_course: 1 }).catch(() => []),
   ]);
   const peer = assignments.filter((a) => a.peer_review);
   const selected = ctx.query.assignment_id || (peer[0] && peer[0].id);

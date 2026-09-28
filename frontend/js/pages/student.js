@@ -26,6 +26,35 @@ export async function loadDashboard() {
 
 export function renderDashboard({ dash, knowledge, report }) {
   const st = dash.stats || {};
+  // 刚注册、还没用邀请码加入课程：给出加入入口
+  if (dash.need_course || !(dash.course && dash.course.id)) {
+    const codeInput = h('input', { class: 'input', placeholder: '老师给的课程 / 班级邀请码' });
+    return h('div', { class: 'col', style: { gap: '16px' } },
+      h('div', { class: 'hero' },
+        h('div', {},
+          h('div', { class: 'hero__title' }, `你好，${state.user.name}`),
+          h('p', { class: 'hero__sub' }, '还没有加入任何课程，输入任课老师给的邀请码即可开始。'))),
+      U.card(
+        U.cardHead('加入课程', { sub: '邀请码由任课老师在「班级与学生」里生成' }),
+        h('div', { class: 'col', style: { gap: '12px', maxWidth: '420px' } },
+          U.field('邀请码', codeInput, { required: true }),
+          U.btn('加入课程', {
+            tone: 'primary',
+            onClick: async () => {
+              const code = codeInput.value.trim();
+              if (!code) return fail('请输入邀请码');
+              try {
+                const r = await api.post('/api/courses/join', { invite_code: code });
+                state.courseId = r.course.id;
+                ok(r.class_name ? `已加入 ${r.course.name} · ${r.class_name}`
+                  : `已加入课程 ${r.course.name}`);
+                router.resolve();
+              } catch (e) { fail(e.message); }
+            },
+          }),
+          U.note('加入后就能看到老师布置的作业和互评任务。', 'ok')))
+    );
+  }
   const hour = new Date().getHours();
   const greet = hour < 6 ? '凌晨好' : hour < 12 ? '上午好' : hour < 14 ? '中午好' : hour < 18 ? '下午好' : '晚上好';
   const todo = dash.todo || [];

@@ -10,7 +10,7 @@ import { toast, fail, confirmDialog } from './core/toast.js';
 import * as U from './core/ui.js';
 import { avatar, icon, loading, empty } from './core/ui.js';
 
-import { renderLanding, renderLogin } from './pages/public.js';
+import { renderLanding, renderLogin, renderRegister } from './pages/public.js';
 import { renderProblem } from './pages/problem.js';
 import * as S from './pages/student.js';
 import * as T from './pages/teacher-core.js';
@@ -378,7 +378,7 @@ export async function refreshBadges() {
 /* --------------------------------------------------------------- 路由 */
 
 function guard(ctx) {
-  const isPublic = ['/', '/login'].includes(ctx.path);
+  const isPublic = ['/', '/login', '/register'].includes(ctx.path);
   if (!state.token && !isPublic) {
     router.navigate('/login');
     return false;
@@ -398,6 +398,11 @@ function registerRoutes() {
   router.register('/login', async () => {
     const app = document.getElementById('app');
     clear(app).appendChild(renderLogin());
+  });
+  router.register('/register', async () => {
+    if (state.token) return;               // 已登录就不用再注册
+    const app = document.getElementById('app');
+    clear(app).appendChild(renderRegister());
   });
 
   // 路由包装：把 ctx（含 params / query）透传给 loader 与 render，

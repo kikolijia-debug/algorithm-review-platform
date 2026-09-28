@@ -31,6 +31,35 @@ export function renderTeacherDashboard({ dash, chapters }) {
   const pendingAlloc = (dash && dash.assignments || []).filter((a) => a.need_confirm).length;
   // 顶栏徽章与这里用同一个口径（refreshBadges 已经取过一次）
   const anomalies = state.openAnomalies || st.open_anomalies || 0;
+  // 新注册的教师还没有课程：给出创建引导，而不是显示别人的数据
+  if (!course.id) {
+    return h('div', { class: 'launch' },
+      h('div', { class: 'launch__head' },
+        h('div', { class: 'launch__title' }, '教学看板'),
+        h('div', { class: 'launch__sub' }, '你还没有课程，先建一门课就能开始了')),
+      U.card(
+        U.cardHead('创建第一门课程', { sub: '创建后系统会生成课程邀请码，学生凭邀请码加入' }),
+        h('div', { class: 'col', style: { gap: '12px', maxWidth: '460px' } },
+          U.field('课程名称', h('input', { class: 'input', id: 'new-course-name', value: '算法设计与分析' })),
+          U.field('学期（选填）', h('input', { class: 'input', id: 'new-course-term', placeholder: '例如 2026 秋季' })),
+          U.btn('创建课程', {
+            tone: 'primary',
+            onClick: async () => {
+              const nm = (document.getElementById('new-course-name').value || '').trim();
+              const term = (document.getElementById('new-course-term').value || '').trim();
+              if (!nm) return fail('请填写课程名称');
+              try {
+                const c = await api.post('/api/courses', { name: nm, term });
+                state.courseId = c.id;
+                ok('课程已创建，邀请码：' + c.invite_code);
+                router.resolve();
+              } catch (e) { fail(e.message); }
+            },
+          }),
+          U.note('建好课程后，去「班级与学生」新建班级、批量导入学生名单，'
+            + '再到「作业与题库」出题、布置作业。', 'ok')))
+    );
+  }
 
   // 只保留「图标 + 名称 + 一行提示」，点击即进入对应工作台
   const entries = [

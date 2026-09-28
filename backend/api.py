@@ -90,6 +90,59 @@ def anon_label(user_id: int) -> str:
     return "匿名#%d" % (1000 + (int(user_id) * 7919) % 8999)
 
 
+# ---------------------------------------------------------------------------
+# 课程归属：每个账号只应看到「自己的课程」，而不是库里的第一门课
+# ---------------------------------------------------------------------------
+
+
+def user_course_ids(user) -> list[int]:
+    """当前账号可见的课程：教师=自己开设或协作的；学生=已加入的。"""
+    if not user:
+        return []
+    uid = user["id"]
+    if user.get("role") in ("teacher", "ta"):
+        rows = db.q(
+            "SELECT id FROM courses WHERE teacher_id=? "
+            "UNION SELECT course_id AS id FROM course_members "
+            "WHERE user_id=? AND role<>'student' ORDER BY id",
+            (uid, uid),
+        )
+    else:
+        rows = db.q(
+            "SELECT course_id AS id FROM course_members WHERE user_id=? ORDER BY course_id",
+            (uid,),
+        )
+    return [r["id"] for r in rows]
+
+
+def active_course_id(ctx, explicit=None) -> int | None:
+    """当前活动课程。
+
+    * 显式传入的 course_id 只有在属于当前用户时才生效，避免越权看到别人的课；
+    * 否则取该用户的第一门课；没有任何课程时返回 ``None``（由调用方给出空数据/引导）。
+    """
+    mine = user_course_ids(ctx.get("user"))
+    if explicit:
+        try:
+            cid = int(explicit)
+        except (TypeError, ValueError):
+            cid = None
+        if cid and cid in mine:
+            return cid
+    return mine[0] if mine else None
+
+
+def gen_invite_code(prefix: str = "CLS") -> str:
+    import hashlib
+    import random as _random
+
+    for _ in range(50):
+        code = prefix + "".join(_random.choice("0123456789ABCDEF") for _ in range(4))
+        if not db.q1("SELECT id FROM courses WHERE invite_code=?", (code,)):
+            return code
+    return prefix + hashlib.md5(db.now().encode()).hexdigest()[:4].upper()
+
+
 #: 编程题（代码互评）的默认评分细则；教师可在题库里为每道题单独配置
 DEFAULT_CODE_RUBRIC = [
     {"key": "correctness", "name": "正确性", "max": 35,
@@ -110,6 +163,71 @@ def default_code_rubric() -> list:
 # ---------------------------------------------------------------------------
 # 认证
 # ---------------------------------------------------------------------------
+
+
+@route("POST", "/api/auth/register", "public")
+def api_register(ctx):
+    """注册账号。
+
+    * 教师 / 助教：自动创建一门属于自己的课程（课程名可自填），注册完就能直接用；
+    * 学生：填写邀请码后直接加入对应课程（或班级）；不填则先进入「未加入课程」状态，
+      登录后可以在学习动态里用邀请码加入，不会污染别人的课程。
+    """
+    b = ctx["body"]
+    username = (b.get("username") or "").strip()
+    name = (b.get("name") or "").strip()
+    pwd = b.get("password") or ""
+    role = b.get("role") or "student"
+    if len(username) < 3 or len(pwd) < 6 or not name:
+        return err(400, "账号至少 3 位、密码至少 6 位，姓名不能为空")
+    if role not in ("student", "teacher", "ta"):
+        return err(400, "角色不合法")
+    if db.q1("SELECT id FROM users WHERE username=?", (username,)):
+        return err(409, "该账号已被注册")
+    pw, salt = hash_password(pwd)
+    uid = db.ex(
+        "INSERT INTO users(username,email,password,salt,role,name,student_no,class_name,avatar,"
+        "created_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
+        (username, b.get("email"), pw, salt, role, name, b.get("student_no"),
+         b.get("class_name"), name[0], db.now()),
+    )
+    code = (b.get("invite_code") or "").strip().upper()
+    joined = None
+    if role in ("teacher", "ta"):
+        # 自己开一门课，课程名默认「某某 的课程」
+        course_name = (b.get("course_name") or "").strip() or (name + " 的课程")
+        joined = db.ex(
+            "INSERT INTO courses(name,code,term,teacher_id,description,invite_code,created_at) "
+            "VALUES(?,?,?,?,?,?,?)",
+            (course_name, None, b.get("term") or None, uid, "", gen_invite_code("CRS"), db.now()),
+        )
+        db.ex(
+            "INSERT OR IGNORE INTO course_members(course_id,user_id,role,class_id,joined_at) "
+            "VALUES(?,?,?,?,?)",
+            (joined, uid, role, None, db.now()),
+        )
+    elif code:
+        course = db.q1("SELECT * FROM courses WHERE UPPER(invite_code)=?", (code,))
+        cls = db.q1("SELECT * FROM classes WHERE UPPER(invite_code)=?", (code,))
+        if not course and cls:
+            course = db.q1("SELECT * FROM courses WHERE id=?", (cls["course_id"],))
+        if not course:
+            db.ex("DELETE FROM users WHERE id=?", (uid,))
+            return err(404, "邀请码无效，请向任课老师确认后再注册")
+        joined = course["id"]
+        db.ex(
+            "INSERT OR IGNORE INTO course_members(course_id,user_id,role,class_id,joined_at) "
+            "VALUES(?,?,?,?,?)",
+            (joined, uid, role, cls["id"] if cls else None, db.now()),
+        )
+        if cls:
+            db.ex("UPDATE users SET class_name=? WHERE id=?", (cls["name"], uid))
+    u = dict(db.q1("SELECT * FROM users WHERE id=?", (uid,)))
+    return ok({
+        "token": create_session(u), "user": public_user(u),
+        "course_id": joined,
+        "need_course": role == "student" and not joined,
+    })
 
 
 @route("POST", "/api/auth/login", "public")
@@ -134,50 +252,6 @@ def api_login(ctx):
         (u["id"], None, "login", "{}", db.now()),
     )
     return ok({"token": token, "user": public_user(dict(u))})
-
-
-@route("POST", "/api/auth/register", "public")
-def api_register(ctx):
-    b = ctx["body"]
-    username = (b.get("username") or "").strip()
-    name = (b.get("name") or "").strip()
-    pwd = b.get("password") or ""
-    role = b.get("role") or "student"
-    if len(username) < 3 or len(pwd) < 6 or not name:
-        return err(400, "账号至少 3 位、密码至少 6 位，姓名不能为空")
-    if role not in ("student", "teacher", "ta"):
-        return err(400, "角色不合法")
-    if db.q1("SELECT id FROM users WHERE username=?", (username,)):
-        return err(409, "该账号已被注册")
-    pw, salt = hash_password(pwd)
-    uid = db.ex(
-        "INSERT INTO users(username,email,password,salt,role,name,student_no,class_name,avatar,"
-        "created_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
-        (username, b.get("email"), pw, salt, role, name, b.get("student_no"),
-         b.get("class_name"), name[0], db.now()),
-    )
-    code = (b.get("invite_code") or "").strip().upper()
-    course = db.q1("SELECT * FROM courses WHERE UPPER(invite_code)=?", (code,)) if code else None
-    if not course:
-        course = db.q1("SELECT * FROM courses ORDER BY id LIMIT 1")
-    # 邀请码也可以指向某个班级，注册后直接进班
-    cls = db.q1("SELECT * FROM classes WHERE UPPER(invite_code)=?", (code,)) if code else None
-    if cls and (not course or cls["course_id"] != course["id"]):
-        course = db.q1("SELECT * FROM courses WHERE id=?", (cls["course_id"],)) or course
-    if course:
-        db.ex(
-            "INSERT OR IGNORE INTO course_members(course_id,user_id,role,class_id,joined_at) "
-            "VALUES(?,?,?,?,?)",
-            (course["id"], uid, role, cls["id"] if cls else None, db.now()),
-        )
-        if cls:
-            db.ex(
-                "UPDATE course_members SET class_id=? WHERE course_id=? AND user_id=?",
-                (cls["id"], course["id"], uid),
-            )
-            db.ex("UPDATE users SET class_name=? WHERE id=?", (cls["name"], uid))
-    u = dict(db.q1("SELECT * FROM users WHERE id=?", (uid,)))
-    return ok({"token": create_session(u), "user": public_user(u)})
 
 
 @route("POST", "/api/auth/logout")
@@ -251,15 +325,13 @@ def api_health(ctx):
 @route("GET", "/api/courses")
 def api_courses(ctx):
     u = ctx["user"]
-    if is_teacher(u):
-        rows = uid_rows("SELECT c.* FROM courses c ORDER BY c.id")
-    else:
-        rows = uid_rows(
-            "SELECT c.* FROM course_members m JOIN courses c ON c.id=m.course_id "
-            "WHERE m.user_id=? ORDER BY c.id",
-            (u["id"],),
-        )
+    ids = user_course_ids(u)
+    if not ids:
+        return ok([])
+    ph = ",".join("?" * len(ids))
+    rows = uid_rows("SELECT c.* FROM courses c WHERE c.id IN (%s) ORDER BY c.id" % ph, ids)
     for c in rows:
+        c["is_owner"] = c["teacher_id"] == u["id"]
         c["students"] = db.q1(
             "SELECT COUNT(*) c FROM course_members WHERE course_id=? AND role='student'",
             (c["id"],),
@@ -278,14 +350,180 @@ def api_courses(ctx):
     return ok(rows)
 
 
+@route("POST", "/api/courses", "teacher")
+def api_course_create(ctx):
+    """教师创建一门自己的课程（注册时也会自动创建一门）。"""
+    b = ctx["body"] or {}
+    name = (b.get("name") or "").strip()
+    if not name:
+        return err(400, "请填写课程名称")
+    u = ctx["user"]
+    cid = db.ex(
+        "INSERT INTO courses(name,code,term,teacher_id,description,invite_code,created_at) "
+        "VALUES(?,?,?,?,?,?,?)",
+        (name, b.get("code") or None, b.get("term") or None, u["id"],
+         b.get("description") or "", gen_invite_code("CRS"), db.now()),
+    )
+    db.ex(
+        "INSERT OR IGNORE INTO course_members(course_id,user_id,role,class_id,joined_at) "
+        "VALUES(?,?,?,?,?)",
+        (cid, u["id"], u["role"], None, db.now()),
+    )
+    return ok(public_course(cid))
+
+
+def public_course(cid: int) -> dict:
+    c = dict(db.q1("SELECT * FROM courses WHERE id=?", (cid,)))
+    c["students"] = db.q1(
+        "SELECT COUNT(*) c FROM course_members WHERE course_id=? AND role='student'", (cid,))["c"]
+    c["problems"] = db.q1("SELECT COUNT(*) c FROM problems WHERE course_id=?", (cid,))["c"]
+    c["assignments"] = db.q1("SELECT COUNT(*) c FROM assignments WHERE course_id=?", (cid,))["c"]
+    return c
+
+
+@route("POST", "/api/courses/join")
+def api_course_join(ctx):
+    """用邀请码加入课程（也可以是某个班级的邀请码，加入时直接分班）。"""
+    code = ((ctx["body"] or {}).get("invite_code") or "").strip().upper()
+    if not code:
+        return err(400, "请输入老师提供的邀请码")
+    u = ctx["user"]
+    course = db.q1("SELECT * FROM courses WHERE UPPER(invite_code)=?", (code,))
+    cls = db.q1("SELECT * FROM classes WHERE UPPER(invite_code)=?", (code,))
+    if not course and cls:
+        course = db.q1("SELECT * FROM courses WHERE id=?", (cls["course_id"],))
+    if not course:
+        return err(404, "邀请码无效，请向任课老师确认")
+    already = db.q1(
+        "SELECT id FROM course_members WHERE course_id=? AND user_id=?", (course["id"], u["id"]))
+    if already:
+        db.ex(
+            "UPDATE course_members SET class_id=COALESCE(?,class_id) WHERE id=?",
+            (cls["id"] if cls else None, already["id"]),
+        )
+    else:
+        db.ex(
+            "INSERT INTO course_members(course_id,user_id,role,class_id,joined_at) VALUES(?,?,?,?,?)",
+            (course["id"], u["id"], u["role"], cls["id"] if cls else None, db.now()),
+        )
+    if cls:
+        db.ex("UPDATE users SET class_name=? WHERE id=?", (cls["name"], u["id"]))
+    return ok({"course": public_course(course["id"]),
+               "class_name": cls["name"] if cls else None})
+
+
 @route("GET", "/api/users")
 def api_users(ctx):
     role = ctx["query"].get("role")
-    if role:
+    cid = active_course_id(ctx, ctx["query"].get("course_id"))
+    if cid and ctx["query"].get("in_course"):
+        rows = uid_rows(
+            "SELECT u.* FROM course_members m JOIN users u ON u.id=m.user_id "
+            "WHERE m.course_id=? AND (? IS NULL OR u.role=?) ORDER BY u.class_name,u.student_no,u.id",
+            (cid, role, role))
+    elif role:
         rows = uid_rows("SELECT * FROM users WHERE role=? ORDER BY id", (role,))
     else:
         rows = uid_rows("SELECT * FROM users ORDER BY id")
     return ok([public_user(r) for r in rows])
+
+
+@route("POST", "/api/users", "teacher")
+def api_user_create(ctx):
+    """教师在自己的课程里新建学生（或助教）账号。"""
+    b = ctx["body"] or {}
+    cid = active_course_id(ctx, b.get("course_id") or ctx["query"].get("course_id"))
+    if not cid:
+        return err(400, "请先创建或加入一门课程")
+    name = (b.get("name") or "").strip()
+    username = (b.get("username") or "").strip()
+    if not name or not username:
+        return err(400, "姓名与账号都不能为空")
+    if len(username) < 3:
+        return err(400, "账号至少 3 位")
+    if db.q1("SELECT id FROM users WHERE username=?", (username,)):
+        return err(409, "账号 %s 已存在" % username)
+    role = b.get("role") or "student"
+    if role not in ("student", "ta"):
+        return err(400, "只能创建学生或助教账号")
+    pwd = b.get("password") or "123456"
+    if len(pwd) < 6:
+        return err(400, "密码至少 6 位")
+    pw, salt = hash_password(pwd)
+    class_id = b.get("class_id") or None
+    cls = db.q1("SELECT * FROM classes WHERE id=? AND course_id=?", (class_id, cid)) if class_id else None
+    uid = db.ex(
+        "INSERT INTO users(username,email,password,salt,role,name,student_no,class_name,avatar,"
+        "created_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
+        (username, b.get("email") or None, pw, salt, role, name,
+         b.get("student_no") or None, cls["name"] if cls else None, name[0], db.now()),
+    )
+    db.ex(
+        "INSERT OR IGNORE INTO course_members(course_id,user_id,role,class_id,joined_at) "
+        "VALUES(?,?,?,?,?)",
+        (cid, uid, role, cls["id"] if cls else None, db.now()),
+    )
+    return ok({"id": uid, "username": username, "name": name, "password": pwd,
+               "class_name": cls["name"] if cls else None})
+
+
+@route("POST", "/api/users/bulk", "teacher")
+def api_users_bulk(ctx):
+    """批量导入学生名单。
+
+    请求体 ``rows`` 每项可以是 ``{name, username?, student_no?}``，
+    也支持直接传字符串数组（``"张三,20260001"`` 或 ``"张三 20260001"``）。
+    """
+    b = ctx["body"] or {}
+    cid = active_course_id(ctx, b.get("course_id"))
+    if not cid:
+        return err(400, "请先创建或加入一门课程")
+    raw = b.get("rows") or []
+    if not raw:
+        return err(400, "请粘贴学生名单")
+    default_pwd = b.get("password") or "123456"
+    if len(default_pwd) < 6:
+        return err(400, "默认密码至少 6 位")
+    class_id = b.get("class_id") or None
+    cls = db.q1("SELECT * FROM classes WHERE id=? AND course_id=?", (class_id, cid)) if class_id else None
+    existing = {r["username"] for r in db.q("SELECT username FROM users")}
+    pw, salt = hash_password(default_pwd)
+    created, skipped = [], []
+    for item in raw:
+        if isinstance(item, str):
+            parts = [x for x in item.replace("\t", ",").replace(" ", ",").split(",") if x.strip()]
+            name = parts[0].strip() if parts else ""
+            no = parts[1].strip() if len(parts) > 1 else ""
+            username = parts[2].strip() if len(parts) > 2 else ""
+        else:
+            name = (item.get("name") or "").strip()
+            no = (item.get("student_no") or "").strip()
+            username = (item.get("username") or "").strip()
+        if not name:
+            continue
+        username = username or (no if no else "s" + str(abs(hash(name)) % 10 ** 8))
+        base, n = username, 2
+        while username in existing:
+            username = "%s%d" % (base, n)
+            n += 1
+        existing.add(username)
+        uid = db.ex(
+            "INSERT INTO users(username,email,password,salt,role,name,student_no,class_name,avatar,"
+            "created_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
+            (username, None, pw, salt, "student", name, no or None,
+             cls["name"] if cls else None, name[0], db.now()),
+        )
+        db.ex(
+            "INSERT OR IGNORE INTO course_members(course_id,user_id,role,class_id,joined_at) "
+            "VALUES(?,?,?,?,?)",
+            (cid, uid, "student", cls["id"] if cls else None, db.now()),
+        )
+        created.append({"id": uid, "name": name, "username": username, "student_no": no})
+    if not created:
+        return err(400, "没有解析出有效的名单行")
+    return ok({"created": created, "count": len(created),
+               "password": default_pwd, "class_name": cls["name"] if cls else None,
+               "skipped": skipped})
 
 
 @route("GET", "/api/users/{id}")
@@ -304,9 +542,10 @@ def api_problems(ctx):
     q = ctx["query"]
     sql = "SELECT * FROM problems WHERE 1=1"
     args = []
-    if q.get("course_id"):
+    cid = active_course_id(ctx, q.get("course_id"))
+    if cid:
         sql += " AND course_id=?"
-        args.append(q["course_id"])
+        args.append(cid)
     if q.get("type"):
         sql += " AND type=?"
         args.append(q["type"])
@@ -382,7 +621,7 @@ def api_problem_create(ctx):
         "output_format,constraints,samples,time_limit_ms,memory_limit_mb,score,rubric,created_by,"
         "created_at,tags,chapter) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (
-            b.get("course_id") or db.q1("SELECT id FROM courses ORDER BY id")["id"],
+            active_course_id(ctx, b.get("course_id")),
             b.get("title") or "未命名题目", b.get("type") or "programming",
             int(b.get("difficulty") or 3), db.jdumps(b.get("topics") or []),
             b.get("statement") or "", b.get("input_format") or "",
@@ -500,9 +739,10 @@ def api_assignments(ctx):
     q = ctx["query"]
     sql = "SELECT * FROM assignments WHERE 1=1"
     args = []
-    if q.get("course_id"):
+    cid = active_course_id(ctx, q.get("course_id"))
+    if cid:
         sql += " AND course_id=?"
-        args.append(q["course_id"])
+        args.append(cid)
     sql += " ORDER BY id DESC"
     rows = uid_rows(sql, args)
     u = ctx["user"]
@@ -566,7 +806,7 @@ def api_assignment_create(ctx):
         "reviews_per_submission,max_load,aggregation_method,allocate_method,params,status,peer_review,"
         "created_by,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (
-            b.get("course_id") or db.q1("SELECT id FROM courses ORDER BY id")["id"],
+            active_course_id(ctx, b.get("course_id")),
             b.get("title") or "未命名作业", b.get("description") or "",
             b.get("type") or "mixed", b.get("start_at") or db.now(), b.get("due_at"),
             b.get("review_due_at"), int(b.get("reviews_per_submission") or 3),
@@ -719,9 +959,11 @@ def api_submissions(ctx):
     if q.get("verdict"):
         sql += " AND s.verdict=?"
         args.append(q["verdict"])
-    if q.get("course_id"):
+    # 默认只显示当前账号所在课程的数据，避免跨课程串数据
+    cid = active_course_id(ctx, q.get("course_id"))
+    if cid:
         sql += " AND p.course_id=?"
-        args.append(q["course_id"])
+        args.append(cid)
     sql += " ORDER BY s.id DESC LIMIT ?"
     args.append(int(q.get("limit") or 100))
     rows = uid_rows(sql, args)
@@ -827,19 +1069,20 @@ def api_rejudge_assignment(ctx):
 def api_submission_stats(ctx):
     q = ctx["query"]
     where, args = "WHERE 1=1", []
-    if q.get("course_id"):
+    cid = active_course_id(ctx, q.get("course_id"))
+    if cid:
         where += " AND p.course_id=?"
-        args.append(q["course_id"])
+        args.append(cid)
     if q.get("assignment_id"):
         where += " AND s.assignment_id=?"
         args.append(q["assignment_id"])
     rows = uid_rows(
         "SELECT s.verdict, COUNT(*) c FROM submissions s JOIN problems p ON p.id=s.problem_id "
         + where + " GROUP BY s.verdict", args)
-    total = sum(r["c"] for r in rows) or 1
+    total = sum(r["c"] for r in rows)
     ac = next((r["c"] for r in rows if r["verdict"] == "Accepted"), 0)
     return ok({"total": total, "by_verdict": {r["verdict"]: r["c"] for r in rows},
-               "ac_rate": round(ac / total, 4)})
+               "ac_rate": round(ac / total, 4) if total else 0.0})
 
 
 # ---------------------------------------------------------------------------

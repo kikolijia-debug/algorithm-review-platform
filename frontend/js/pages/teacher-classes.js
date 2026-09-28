@@ -321,7 +321,8 @@ async function openMembers(cls, allClasses, onChanged) {
               api.get('/api/classes'),
             ]);
             const others = all.filter((c) => c.id !== cls.id);
-            const allStudents = await api.get('/api/users?role=student');
+            // 只列本课程的学生，避免把别的课程的人加进来
+            const allStudents = await api.get('/api/users', { role: 'student', in_course: 1 });
             const inOther = allStudents.filter((s) => !unassigned.some((u) => u.id === s.id));
             openAddStudents(cls, others, [...unassigned, ...inOther.filter((s) =>
               !data.students.some((d) => d.id === s.id))], async () => {
@@ -372,10 +373,63 @@ function openAddStudents(targetClass, allClasses, candidates, onDone) {
   const chosen = new Set();
   const listBox = h('div', { style: { maxHeight: '320px', overflowY: 'auto' } });
 
+  /** 课程里还没有这个学生？直接新建账号（单个 / 批量粘贴名单） */
+  const openCreate = () => {
+    const single = h('input', { class: 'input', placeholder: '姓名' });
+    const singleNo = h('input', { class: 'input', placeholder: '学号（选填）' });
+    const bulk = h('textarea', {
+      class: 'input input--area',
+      placeholder: '批量粘贴：每行一个学生，支持「姓名,学号」或「姓名 学号」\n例如：\n张三,20260001\n李四,20260002',
+      style: { minHeight: '140px' },
+    });
+    const pwdInput = h('input', { class: 'input', value: '123456' });
+    U.modal('新建学生账号', h('div', { class: 'col', style: { gap: '14px' } },
+      U.note('新建的账号会自动加入本课程（并分到所选班级），学生用「账号 + 默认密码」登录。', 'ok'),
+      U.field('目标班级', U.select(
+        allClasses.map((c) => ({ value: c.id, label: `${c.name}（${c.member_count} 人）` })),
+        { value: classId, onchange: (e) => (classId = Number(e.target.value)) })),
+      U.field('单个新建', h('div', { class: 'row', style: { gap: '8px' } }, single, singleNo)),
+      U.btn('新建这个学生', {
+        tone: 'soft', size: 'sm',
+        onClick: async () => {
+          const nm = single.value.trim();
+          if (!nm) return fail('请填写姓名');
+          try {
+            const r = await api.post('/api/users', {
+              name: nm, student_no: singleNo.value.trim(), class_id: classId,
+              username: singleNo.value.trim() || undefined,
+            });
+            ok(`已创建 ${r.name}，账号 ${r.username} / 密码 ${r.password}`);
+            single.value = ''; singleNo.value = '';
+            onDone();
+          } catch (e) { fail(e.message); }
+        },
+      }),
+      U.field('批量导入名单', bulk, { hint: '每行一个学生，账号默认用学号，没有学号会自动生成' }),
+      U.field('默认密码', pwdInput),
+      U.btn('批量创建', {
+        tone: 'primary', size: 'sm',
+        onClick: async () => {
+          const rows = bulk.value.split('\n').map((x) => x.trim()).filter(Boolean);
+          if (!rows.length) return fail('请粘贴名单');
+          try {
+            const r = await api.post('/api/users/bulk', {
+              rows, class_id: classId, password: pwdInput.value || '123456',
+            });
+            ok(`已创建 ${r.count} 个学生账号，默认密码 ${r.password}`);
+            bulk.value = '';
+            onDone();
+          } catch (e) { fail(e.message); }
+        },
+      })
+    ), { width: 640, actions: (close) => [U.btn('关闭', { tone: 'ghost', onClick: close })] });
+  };
+
   const paint = () => {
     clear(listBox);
     if (!candidates.length) {
-      listBox.appendChild(U.empty('没有可分配的学生', '所有学生都已在班级中。'));
+      listBox.appendChild(U.empty('没有可分配的学生',
+        '学生都在班级里了；如果课程里还没有学生，可以直接新建账号。'));
       return;
     }
     candidates.forEach((s) =>
@@ -406,10 +460,12 @@ function openAddStudents(targetClass, allClasses, candidates, onDone) {
       )),
       h('div', { class: 'row between' },
         h('span', { class: 'small muted' }, `可选学生 ${candidates.length} 人`),
-        U.btn('全选', { tone: 'plain', size: 'xs', onClick: () => {
-          candidates.forEach((s) => chosen.add(s.id));
-          listBox.querySelectorAll('input[type=checkbox]').forEach((el) => (el.checked = true));
-        } })),
+        h('div', { class: 'row', style: { gap: '8px' } },
+          U.btn('新建学生账号', { tone: 'soft', size: 'xs', onClick: openCreate }),
+          U.btn('全选', { tone: 'plain', size: 'xs', onClick: () => {
+            candidates.forEach((s) => chosen.add(s.id));
+            listBox.querySelectorAll('input[type=checkbox]').forEach((el) => (el.checked = true));
+          } }))),
       listBox
     ),
     {

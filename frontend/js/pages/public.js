@@ -4,7 +4,7 @@ import { h, clear } from '../core/dom.js';
 import { state, save, emit } from '../core/store.js';
 import * as api from '../core/api.js';
 import * as router from '../core/router.js';
-import { ok, fail } from '../core/toast.js';
+import { ok, fail, toast } from '../core/toast.js';
 
 /* ------------------------------------------------------------- 首页 */
 
@@ -244,6 +244,11 @@ export function renderLogin() {
       ),
       errBox,
       h('div', { class: 'mt16' }, submit),
+      h('div', { class: 'mt12', style: { textAlign: 'center' } },
+        h('button', {
+          class: 'btn btn--ghost btn--sm',
+          onclick: () => router.navigate('/register'),
+        }, '没有账号？去注册')),
       h(
         'div',
         { class: 'login__demo' },
@@ -297,7 +302,138 @@ export function renderLogin() {
 function applySession(r) {
   state.token = r.token;
   state.user = r.user;
-  state.courseId = state.courseId || 1;
+  if (r.course_id) state.courseId = r.course_id;
   save();
   emit();
+}
+
+/* --------------------------------------------------------- 注册 */
+
+/**
+ * 注册页：教师注册后自动获得一门自己的课程；学生填邀请码直接进班，
+ * 不填邀请码则先进入「未加入课程」状态，登录后可以在学习动态里加入。
+ */
+export function renderRegister() {
+  let role = 'student';
+  const name = h('input', { class: 'input', placeholder: '真实姓名' });
+  const username = h('input', { class: 'input', placeholder: '登录账号，至少 3 位' });
+  const pwd = h('input', { class: 'input', type: 'password', placeholder: '密码，至少 6 位' });
+  const email = h('input', { class: 'input', placeholder: '选填' });
+  const extra = h('div');
+  const errBox = h('div', { class: 'note note--danger', style: { display: 'none' } });
+
+  const courseName = h('input', { class: 'input', value: '算法设计与分析' });
+  const inviteCode = h('input', { class: 'input', placeholder: '老师给的课程 / 班级邀请码' });
+  const studentNo = h('input', { class: 'input', placeholder: '选填' });
+
+  const paintExtra = () => {
+    clear(extra);
+    if (role === 'student') {
+      extra.appendChild(h('div', { class: 'col', style: { gap: '14px' } },
+        h('label', { class: 'field' }, h('span', { class: 'field__label' }, '邀请码（选填）'), inviteCode),
+        h('p', { class: 'small muted', style: { marginTop: '-4px' } },
+          '填了邀请码会直接加入对应课程/班级；暂时没有可以先注册，登录后用邀请码加入。'),
+        h('label', { class: 'field' }, h('span', { class: 'field__label' }, '学号（选填）'), studentNo)));
+    } else {
+      extra.appendChild(h('div', { class: 'col', style: { gap: '14px' } },
+        h('label', { class: 'field' }, h('span', { class: 'field__label' }, '我的课程名称'), courseName),
+        h('p', { class: 'small muted', style: { marginTop: '-4px' } },
+          '注册后会为你创建这门课程并生成邀请码，学生凭邀请码加入。')));
+    }
+  };
+
+  const roleGrid = h('div', { class: 'role-grid' },
+    ...[
+      { key: 'student', title: '学生', sub: '加入课程 · 提交与互评', icon: '✦' },
+      { key: 'teacher', title: '教师', sub: '开设课程 · 教学与治理', icon: '◈' },
+    ].map((r) => h('button', {
+      type: 'button',
+      class: ['role-tile', role === r.key ? 'is-active' : ''],
+      onclick: () => {
+        role = r.key;
+        Array.from(roleGrid.children).forEach((c) => c.classList.remove('is-active'));
+        roleGrid.children[r.key === 'student' ? 0 : 1].classList.add('is-active');
+        errBox.style.display = 'none';
+        paintExtra();
+      },
+    }, h('b', {}, r.icon + ' ' + r.title), h('span', {}, r.sub))));
+  paintExtra();
+
+  const submit = h('button', { class: 'btn btn--primary btn--block' }, '注册并进入工作台');
+  submit.onclick = async () => {
+    const body = {
+      role, name: name.value.trim(), username: username.value.trim(),
+      password: pwd.value, email: email.value.trim() || null,
+      invite_code: role === 'student' ? inviteCode.value.trim() : '',
+      course_name: role === 'student' ? '' : courseName.value.trim(),
+      student_no: role === 'student' ? studentNo.value.trim() : null,
+    };
+    if (!body.name || !body.username || !body.password) {
+      errBox.textContent = '请填写姓名、账号与密码';
+      errBox.style.display = '';
+      return;
+    }
+    submit.disabled = true;
+    submit.textContent = '正在创建账号…';
+    try {
+      const r = await api.post('/api/auth/register', body);
+      applySession(r);
+      if (r.need_course) {
+        toast('账号已创建。请用老师给的邀请码加入课程。', 'warn', 6000);
+      } else {
+        ok('注册成功，欢迎 ' + r.user.name);
+      }
+      router.navigate(r.user.role === 'student' ? '/student' : '/teacher');
+    } catch (e) {
+      errBox.textContent = e.message;
+      errBox.style.display = '';
+    } finally {
+      submit.disabled = false;
+      submit.textContent = '注册并进入工作台';
+    }
+  };
+
+  const right = h(
+    'div',
+    { class: 'login__right' },
+    h(
+      'div',
+      { class: 'login__card' },
+      h('div', { class: 'small', style: { color: 'var(--brand)', letterSpacing: '.14em' } }, '创建账号'),
+      h('h2', {}, '注册 AlgorithmLab'),
+      h('p', { class: 'sub' }, '教师注册后自动创建自己的课程，学生凭邀请码加入班级'),
+      roleGrid,
+      h('div', { class: 'col', style: { gap: '14px' } },
+        h('label', { class: 'field' }, h('span', { class: 'field__label' }, '姓名'), name),
+        h('label', { class: 'field' }, h('span', { class: 'field__label' }, '登录账号'), username),
+        h('label', { class: 'field' }, h('span', { class: 'field__label' }, '密码'), pwd),
+        h('label', { class: 'field' }, h('span', { class: 'field__label' }, '邮箱（选填）'), email)),
+      extra,
+      errBox,
+      h('div', { class: 'mt16' }, submit),
+      h('div', { class: 'mt12' },
+        h('button', {
+          class: 'btn btn--ghost btn--block',
+          onclick: () => router.navigate('/login'),
+        }, '已有账号？返回登录'))
+    )
+  );
+
+  const left = h(
+    'div',
+    { class: 'login__left' },
+    h('div', { class: 'login__brand' },
+      h('div', { class: 'brand__logo' }, 'AL'),
+      h('div', {}, h('b', { style: { color: '#eafaf3' } }, 'AlgorithmLab'),
+        h('span', { style: { color: '#6d8b80', fontSize: '11px', letterSpacing: '.1em' } }, '算法评审平台'))),
+    h('h1', { class: 'login__title' }, '把自己的班级', h('br'), h('em', {}, '搬进平台'), '，马上开课。'),
+    h('p', { class: 'login__sub' },
+      '教师：建课程 → 建班级 → 导入名单 → 出题布置作业；学生：凭邀请码加入 → 提交 → 互评。'),
+    h('div', { class: 'login__steps' },
+      h('div', { class: 'login__step' }, h('i', {}, '01'), h('b', {}, '建课'), h('span', {}, '自动生成邀请码')),
+      h('div', { class: 'login__step' }, h('i', {}, '02'), h('b', {}, '导入'), h('span', {}, '批量建学生账号')),
+      h('div', { class: 'login__step' }, h('i', {}, '03'), h('b', {}, '开课'), h('span', {}, '作业与互评')))
+  );
+
+  return h('div', { class: 'login' }, left, right);
 }

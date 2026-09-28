@@ -13,7 +13,8 @@ from . import db, experiments as EX
 from .algo import ability as AB
 from .algo import similarity as SIM
 from .api import (
-    anon_label, err, is_teacher, jload, ok, parse_dt, public_user, route, uid_rows,
+    active_course_id, anon_label, err, is_teacher, jload, ok, parse_dt, public_user, route,
+    uid_rows,
 )
 
 
@@ -47,11 +48,8 @@ def _stats(values):
 
 
 def _first_course(ctx):
-    cid = ctx["query"].get("course_id")
-    if cid:
-        return cid
-    row = db.q1("SELECT id FROM courses ORDER BY id LIMIT 1")
-    return row["id"] if row else None
+    """当前账号的活动课程（教师=自己的课，学生=已加入的课）。"""
+    return active_course_id(ctx, ctx["query"].get("course_id"))
 
 
 # ---------------------------------------------------------------------------
@@ -591,13 +589,19 @@ def api_anomalies(ctx):
     q = ctx["query"]
     sql = ("SELECT an.*, u.name AS reviewer_name, au.name AS author_name, u.class_name "
            "FROM anomalies an LEFT JOIN users u ON u.id=an.reviewer_id "
-           "LEFT JOIN users au ON au.id=an.submission_id WHERE 1=1")
+           "LEFT JOIN users au ON au.id=an.submission_id "
+           "LEFT JOIN assignments a ON a.id=an.assignment_id WHERE 1=1")
     args = []
     for key, col in (("assignment_id", "an.assignment_id"), ("level", "an.level"),
                      ("status", "an.status"), ("type", "an.type")):
         if q.get(key):
             sql += " AND " + col + "=?"
             args.append(q[key])
+    # 只看当前课程范围内的异常
+    cid = _first_course(ctx)
+    if cid:
+        sql += " AND a.course_id=?"
+        args.append(cid)
     sql += (" ORDER BY CASE an.level WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END, an.id DESC")
     rows = uid_rows(sql, args)
     for r in rows:
@@ -684,7 +688,8 @@ def api_anomaly_batch(ctx):
 def api_similarity(ctx):
     q = ctx["query"]
     sql = ("SELECT s.id,s.user_id,s.problem_id,s.source_code,s.language,u.name "
-           "FROM submissions s JOIN users u ON u.id=s.user_id WHERE 1=1")
+           "FROM submissions s JOIN users u ON u.id=s.user_id "
+           "JOIN problems p ON p.id=s.problem_id WHERE 1=1")
     args = []
     if q.get("problem_id"):
         sql += " AND s.problem_id=?"
@@ -692,6 +697,10 @@ def api_similarity(ctx):
     if q.get("assignment_id"):
         sql += " AND s.assignment_id=?"
         args.append(q["assignment_id"])
+    cid = _first_course(ctx)
+    if cid:
+        sql += " AND p.course_id=?"
+        args.append(cid)
     sql += " AND s.id IN (SELECT MAX(id) FROM submissions GROUP BY user_id,problem_id) LIMIT 200"
     rows = uid_rows(sql, args)
     if len(rows) < 2:
@@ -757,6 +766,8 @@ def api_experiment_run(ctx):
 @route("GET", "/api/notices")
 def api_notices(ctx):
     cid = ctx["query"].get("course_id")
+    if not cid:
+        cid = _first_course(ctx)
     rows = uid_rows(
         "SELECT n.*,u.name AS author_name FROM notices n LEFT JOIN users u ON u.id=n.author_id "
         "WHERE (? IS NULL OR n.course_id=?) ORDER BY n.id DESC LIMIT 30", (cid, cid))
@@ -775,9 +786,14 @@ def api_notice_create(ctx):
 
 @route("GET", "/api/dashboard/teacher")
 def api_dashboard_teacher(ctx):
-    course = db.q1("SELECT * FROM courses ORDER BY id LIMIT 1")
+    cid0 = _first_course(ctx)
+    course = db.q1("SELECT * FROM courses WHERE id=?", (cid0,)) if cid0 else None
     if not course:
-        return ok({})
+        # 新注册的教师还没建课时，返回空看板 + 引导，而不是别人的数据
+        return ok({"course": None, "need_course": True, "students": 0, "assignments": [],
+                   "stats": {"submissions": 0, "accepted": 0, "ac_rate": 0, "pending_reviews": 0,
+                             "open_anomalies": 0, "classes": 0, "problems": 0},
+                   "notices": []})
     cid = course["id"]
     now = datetime.now()
     assignments = uid_rows("SELECT * FROM assignments WHERE course_id=? ORDER BY id DESC", (cid,))
@@ -833,7 +849,11 @@ def api_dashboard_teacher(ctx):
 @route("GET", "/api/dashboard/student")
 def api_dashboard_student(ctx):
     uid = ctx["user"]["id"]
-    course = db.q1("SELECT * FROM courses ORDER BY id LIMIT 1")
+    cid0 = _first_course(ctx)
+    course = db.q1("SELECT * FROM courses WHERE id=?", (cid0,)) if cid0 else None
+    if not course:
+        return ok({"course": None, "need_course": True, "assignments": [], "todo": [],
+                   "submissions": [], "notices": []})
     cid = course["id"] if course else None
     now = datetime.now()
     assignments = uid_rows(

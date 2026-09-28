@@ -18,6 +18,8 @@
 from __future__ import annotations
 
 import json
+import os
+import sqlite3
 import sys
 import time
 import urllib.error
@@ -559,6 +561,111 @@ def main() -> int:
           probe=lambda p: d(p, "data", "stats") is not None)
     check("学生看板", "/api/dashboard/student", role="student",
           probe=lambda p: d(p, "data", "stats") is not None)
+
+    # ---------------------------------------------------------- 注册与课程归属
+    if not READONLY:
+        section("12. 注册新账号后能否独立使用")
+        t_name = f"auditteacher{STAMP[-6:]}"
+        s_name = f"auditstudent{STAMP[-6:]}"
+        reg = call("/api/auth/register", "POST",
+                   {"role": "teacher", "name": "审计教师", "username": t_name,
+                    "password": "audit123", "course_name": f"[审计] 课程 {STAMP}"})
+        t_tok = d(reg[1], "data", "token")
+        t_cid = d(reg[1], "data", "course_id")
+        _report("注册教师账号（自动开课）", bool(t_tok and t_cid), str(reg[1])[:150])
+
+        def tcall(path, method="GET", body=None, timeout=120):
+            """用新注册账号的令牌调用接口。"""
+            req = urllib.request.Request(BASE + path, method=method)
+            req.add_header("Content-Type", "application/json")
+            req.add_header("Authorization", "Bearer " + (t_tok or ""))
+            data = json.dumps(body).encode() if body is not None else None
+            try:
+                with urllib.request.urlopen(req, data, timeout=timeout) as r:
+                    raw = r.read().decode("utf-8", "replace")
+                    return r.status, (json.loads(raw) if raw else {})
+            except urllib.error.HTTPError as e:
+                raw = e.read().decode("utf-8", "replace")
+                try:
+                    return e.code, json.loads(raw)
+                except json.JSONDecodeError:
+                    return e.code, {"raw": raw[:200]}
+            except Exception as e:
+                return 0, {"error": str(e)}
+
+        if t_tok:
+            cs = d(tcall("/api/courses")[1], "data", default=[])
+            _report("新教师只看到自己的课程",
+                    len(cs) == 1 and cs[0]["id"] == t_cid, f"课程列表：{len(cs)} 门")
+            mine_probs = d(tcall("/api/problems")[1], "data", default=[])
+            _report("新教师题库为空（不串演示数据）", mine_probs == [],
+                    f"看到了 {len(mine_probs)} 道别人的题")
+            ov = d(tcall("/api/submissions/stats/overview")[1], "data", "total", default=-1)
+            _report("新教师统计未混入演示数据", ov == 0, f"统计到 {ov} 条提交")
+            an = d(tcall("/api/anomalies")[1], "data", "counts", default={})
+            _report("新教师看不到别人的异常记录", (an or {}).get("open", 0) == 0,
+                    f"异常 {an}")
+
+            cls = d(tcall("/api/classes", "POST",
+                          {"name": f"[审计] 班级 {STAMP}", "course_id": t_cid})[1],
+                    "data", default={})
+            code = cls.get("invite_code")
+            _report("新教师建班级并拿到邀请码", bool(cls.get("id") and code),
+                    str(cls)[:150])
+            bulk = d(tcall("/api/users/bulk", "POST",
+                           {"rows": [f"审计学生A,{STAMP}A", f"审计学生B,{STAMP}B"],
+                            "class_id": cls.get("id")})[1], "data", default={})
+            _report("批量导入学生名单", bulk.get("count") == 2, str(bulk)[:150])
+            prob = d(tcall("/api/problems", "POST",
+                           {"title": f"[审计] 新账号题目 {STAMP}", "type": "programming",
+                            "statement": "输出 a+b", "input_format": "两个整数",
+                            "output_format": "一个整数",
+                            "test_cases": [{"input": "1 2\n", "expected": "3\n",
+                                            "is_sample": True}]})[1], "data", default={})
+            asg = d(tcall("/api/assignments", "POST",
+                          {"title": f"[审计] 新账号作业 {STAMP}",
+                           "problem_ids": [prob.get("id")], "type": "programming"})[1],
+                    "data", default={})
+            _report("新教师出题并布置作业", bool(prob.get("id") and asg.get("id")),
+                    "题目或作业创建失败")
+
+            s_reg = call("/api/auth/register", "POST",
+                         {"role": "student", "name": "审计学生", "username": s_name,
+                          "password": "audit123", "invite_code": code})
+            s_tok = d(s_reg[1], "data", "token")
+            _report("学生用班级邀请码注册即入班", bool(s_tok), str(s_reg[1])[:150])
+            if s_tok:
+                s_req = urllib.request.Request(BASE + "/api/problems")
+                s_req.add_header("Authorization", "Bearer " + s_tok)
+                with urllib.request.urlopen(s_req, timeout=60) as r:
+                    s_probs = json.loads(r.read().decode()).get("data", [])
+                s_req2 = urllib.request.Request(BASE + "/api/assignments")
+                s_req2.add_header("Authorization", "Bearer " + s_tok)
+                with urllib.request.urlopen(s_req2, timeout=60) as r:
+                    s_asg = json.loads(r.read().decode()).get("data", [])
+                _report("学生只看到本课程的题目与作业",
+                        len(s_probs) == 1 and len(s_asg) == 1,
+                        f"题目 {len(s_probs)} 道、作业 {len(s_asg)} 个")
+
+            try:
+                db_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                       "backend", "data", "platform.db")
+                conn = sqlite3.connect(db_path)
+                conn.execute("DELETE FROM course_members WHERE course_id=?", (t_cid,))
+                conn.execute("DELETE FROM classes WHERE course_id=?", (t_cid,))
+                conn.execute("DELETE FROM test_cases WHERE problem_id IN "
+                             "(SELECT id FROM problems WHERE course_id=?)", (t_cid,))
+                conn.execute("DELETE FROM assignment_problems WHERE assignment_id IN "
+                             "(SELECT id FROM assignments WHERE course_id=?)", (t_cid,))
+                conn.execute("DELETE FROM problems WHERE course_id=?", (t_cid,))
+                conn.execute("DELETE FROM assignments WHERE course_id=?", (t_cid,))
+                conn.execute("DELETE FROM courses WHERE id=?", (t_cid,))
+                conn.execute("DELETE FROM users WHERE username IN (?,?)", (t_name, s_name))
+                conn.commit()
+                conn.close()
+                print("     （审计用的临时课程与账号已清理）")
+            except Exception as exc:  # pragma: no cover
+                print("     清理临时数据失败：", exc)
 
     # ---------------------------------------------------------- 清理
     if not READONLY and temp_problem:
