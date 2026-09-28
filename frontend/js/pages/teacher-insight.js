@@ -49,7 +49,11 @@ export function renderAnalytics({ klass, knowledge, timeline, ability }, contain
           }),
           U.table(
             [
-              { title: '题目', render: (p) => h('div', {}, h('b', {}, p.title), U.tagList(p.topics, 'soft')) },
+              {
+                title: '题目', width: '260px',
+                render: (p) => h('div', { class: 'topic-cell' },
+                  h('b', {}, p.title), U.tagList(p.topics, 'soft')),
+              },
               { title: '类型', width: '92px', render: (p) => U.badge(PROBLEM_TYPE[p.type] || p.type, p.type === 'programming' ? 'brand' : 'blue') },
               { title: '满分', width: '74px', class: 'num', render: (p) => (p.score == null ? 100 : p.score) },
               { title: '通过率', width: '170px', render: (p) => h('div', {}, U.progress(p.pass_rate), h('span', { class: 'small muted' }, `${p.ac_count}/${p.students} 人`)) },
@@ -371,7 +375,11 @@ const ERROR_REASONS = {
 
 function renderProblemAnalytics(d) {
   const p = d.problem;
-  const timeHist = (d.time_hist || []).map((b) => ({ label: b.x + '~', value: b.count }));
+  // 耗时区间的标签用「起点~终点」，避免十几位小数挤在一起看不清
+  const timeHist = (d.time_hist || []).map((b) => ({
+    label: `${Math.round(b.x)}~${Math.round(b.x2 != null ? b.x2 : b.x)}`,
+    value: b.count,
+  }));
   return h(
     'div',
     {},

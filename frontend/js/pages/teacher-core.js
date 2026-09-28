@@ -103,55 +103,48 @@ export function renderAssignments({ assignments, problems, courses, chapters }) 
       })
     ),
     U.card(
-      U.table(
-        [
-          {
-            title: '作业', width: '26%',
-            render: (a) => h('div', {},
-              h('b', {}, a.title),
-              h('div', { class: 'small muted wrap-any' }, a.description || '')),
-          },
-          {
-            title: '类型', width: '96px',
-            render: (a) => (a.peer_review ? U.badge('互评主观题', 'warn') : U.badge('编程评测', 'brand')),
-          },
-          { title: '题量', width: '62px', class: 'num', render: (a) => a.problem_count },
-          {
-            title: '完成情况', width: '190px',
-            render: (a) => h('div', {},
-              U.progress(a.rate, { tone: a.rate >= 0.8 ? 'ok' : a.rate >= 0.5 ? 'brand' : 'warn' }),
-              h('span', { class: 'small muted' }, `提交 ${a.done}/${a.students} 人`)),
-          },
-          {
-            title: '通过 / 均分', width: '120px',
-            render: (a) => h('div', { class: 'small' },
-              h('div', {}, `通过 ${a.accepted_users || 0} 人`),
-              h('div', { class: 'muted' }, a.avg_score === null || a.avg_score === undefined ? '均分 —' : `均分 ${a.avg_score}`)),
-          },
-          {
-            title: '互评进度', width: '110px',
-            render: (a) => (a.peer_review
-              ? (a.need_confirm
-                  ? h('div', { class: 'small' },
-                      h('div', { style: { color: 'var(--amber)', fontWeight: '600' } }, '待确认发布'),
-                      h('div', { class: 'muted' }, `已分配 ${a.review_total || 0} 条`))
-                  : h('div', { class: 'small' },
-                      h('div', {}, `已完成 ${a.review_done || 0}/${a.review_total || 0}`),
-                      a.pending_reviews
-                        ? h('div', { style: { color: 'var(--amber)' } }, `待评 ${a.pending_reviews}`)
-                        : h('div', { class: 'muted' }, '已全部完成')))
-              : h('span', { class: 'muted' }, '—')),
-          },
-          { title: '截止', width: '140px', render: (a) => (a.due_at ? U.fmtDate(a.due_at, { withTime: false }) : '未设') },
-          { title: '状态', width: '110px', render: (a) => U.badge(ASSIGNMENT_STATUS[a.status] || a.status, a.status === 'reviewing' ? 'blue' : a.overdue ? 'neutral' : 'brand') },
-          { title: '', width: '140px', render: (a) => h('div', { class: 'row', style: { gap: '6px' } },
-              h('a', { class: 'btn btn--soft btn--xs', href: `#/teacher/assignment/${a.id}` }, '详情'),
-              h('button', { class: 'btn btn--plain btn--xs', onclick: () => editAssignment(a, problems, () => router.resolve(), chapters) }, '编辑')) },
-        ],
-        rows,
-        { empty: '还没有创建作业' }
-      )
+      rows.length
+        ? h('div', { class: 'assign-list' }, ...rows.map((a) => assignmentRow(a, problems, chapters)))
+        : U.empty('还没有创建作业', '点右上角「布置新作业」创建第一次作业。')
     )
+  );
+}
+
+/** 作业列表里的一行：标题 + 关键信息 + 完成情况，避免宽表格带来的挤压与截断 */
+function assignmentRow(a, problems, chapters) {
+  const typeBadge = a.peer_review
+    ? U.badge('匿名互评', 'warn')
+    : U.badge('自动评测', 'brand');
+  const statusBadge = U.badge(
+    ASSIGNMENT_STATUS[a.status] || a.status,
+    a.status === 'reviewing' ? 'blue' : a.overdue ? 'neutral' : 'brand'
+  );
+  const bits = [
+    `${a.problem_count} 道题`,
+    a.due_at ? `截止 ${U.fmtDate(a.due_at, { withTime: false })}` : '未设截止',
+    a.review_due_at ? `互评截止 ${U.fmtDate(a.review_due_at, { withTime: false })}` : null,
+  ].filter(Boolean);
+
+  return h('div', { class: 'assign-row' },
+    h('div', { class: 'assign-row__main' },
+      h('div', { class: 'assign-row__title' }, h('b', {}, a.title), typeBadge, statusBadge),
+      h('div', { class: 'assign-row__meta' }, ...bits.map((t) => h('span', {}, t))),
+      a.description ? h('div', { class: 'assign-row__desc wrap-any' }, a.description) : null,
+      h('div', { class: 'assign-row__progress' },
+        U.progress(a.rate, { tone: a.rate >= 0.8 ? 'ok' : a.rate >= 0.5 ? 'brand' : 'warn' }),
+        h('span', { class: 'small muted' },
+          `提交 ${a.done}/${a.students} 人`
+          + ` · 通过 ${a.accepted_users || 0} 人`
+          + (a.avg_score === null || a.avg_score === undefined ? '' : ` · 均分 ${a.avg_score}`)
+          + (a.peer_review
+              ? (a.need_confirm ? ' · 互评待确认发布' : ` · 互评 ${a.review_done || 0}/${a.review_total || 0}`)
+              : '')))),
+    h('div', { class: 'assign-row__side' },
+      h('a', { class: 'btn btn--soft btn--sm', href: `#/teacher/assignment/${a.id}` }, '进入作业'),
+      h('button', {
+        class: 'btn btn--plain btn--xs',
+        onclick: () => editAssignment(a, problems, () => router.resolve(), chapters),
+      }, '编辑设置'))
   );
 }
 

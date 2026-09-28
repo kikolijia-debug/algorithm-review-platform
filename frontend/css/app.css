@@ -731,12 +731,22 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
 .list-row__side { display: flex; align-items: center; gap: 8px; flex: none; }
 
 /* 题目卡片 */
-.problem-card { display: flex; flex-direction: column; gap: 10px; cursor: pointer; }
+.problem-card { display: flex; flex-direction: column; gap: 10px; cursor: pointer; overflow: hidden; min-width: 0; }
 .problem-card:hover { border-color: var(--line-strong); box-shadow: var(--shadow); }
 .problem-card__top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
 .problem-card__title { font-size: 15px; font-weight: 600; }
 .problem-card__stats { display: flex; gap: 14px; font-size: 12px; color: var(--muted); flex-wrap: wrap; }
-.problem-card__foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-top: 10px; border-top: 1px dashed var(--line); }
+.problem-card__foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  flex-wrap: wrap; row-gap: 6px;
+  padding-top: 10px; border-top: 1px dashed var(--line); min-width: 0;
+}
+.problem-card__foot > * { min-width: 0; max-width: 100%; }
+.problem-card__foot .btn { flex: none; }
+/* 班级卡片：邀请码独自一行，操作按钮另起一行，窄卡片也不会挤出去 */
+.problem-card__foot--stack { flex-direction: column; align-items: stretch; }
+.problem-card__foot--stack .invite-code { align-self: flex-start; }
+.problem-card__actions { display: flex; gap: 6px; flex-wrap: wrap; }
 
 /* 题目详情：左题干右提交 */
 .problem-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.06fr); gap: 18px; align-items: start; }
@@ -781,8 +791,9 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
 /* 学习报告 / 分析 */
 .report-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
 .score-list { display: flex; flex-direction: column; gap: 10px; }
-.score-item { display: grid; grid-template-columns: 88px 1fr 54px; align-items: center; gap: 10px; font-size: 12.5px; }
-.score-item__name { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.score-item { display: grid; grid-template-columns: 132px 1fr 54px; align-items: center; gap: 10px; font-size: 12.5px; }
+/* 名称完整显示，不用省略号截断 */
+.score-item__name { color: var(--ink-2); overflow-wrap: anywhere; line-height: 1.4; }
 .score-item__val { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
 .tone-ok { color: var(--brand-2); } .tone-warn { color: var(--amber); } .tone-danger { color: var(--danger); }
 
@@ -845,6 +856,10 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
 /* 作业详情：逐题状态圆点 */
 .cell-dots { display: flex; gap: 4px; flex-wrap: wrap; }
 .dot-line { display: flex; gap: 3px; flex-wrap: wrap; }
+/* 表格里的「题目 + 知识点」单元格：标题不折行，标签另起一行 */
+.topic-cell { display: flex; flex-direction: column; gap: 4px; }
+.topic-cell > b { white-space: nowrap; }
+.topic-cell .tag-list { margin-top: 0; align-self: flex-start; }
 .cell-dot {
   width: 22px; height: 22px; border-radius: 7px; display: grid; place-items: center;
   font-size: 11px; font-weight: 600; cursor: default;
@@ -886,6 +901,23 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
 }
 
 /* 选题器：按章节分组 */
+.assign-list { display: flex; flex-direction: column; }
+.assign-row {
+  display: flex; align-items: flex-start; gap: 16px;
+  padding: 14px 4px; border-bottom: 1px solid var(--line);
+}
+.assign-row:last-child { border-bottom: none; }
+.assign-row__main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.assign-row__title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 14.5px; }
+.assign-row__meta { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+.assign-row__desc { font-size: 12.5px; color: var(--ink-2); line-height: 1.7; }
+.assign-row__progress { max-width: 460px; display: flex; flex-direction: column; gap: 4px; }
+.assign-row__side { display: flex; align-items: center; gap: 8px; flex: none; padding-top: 2px; }
+@media (max-width: 900px) {
+  .assign-row { flex-direction: column; gap: 10px; }
+  .assign-row__side { padding-top: 0; }
+}
+
 .pick-list {
   max-height: 320px; overflow-y: auto; border: 1px solid var(--line);
   border-radius: 12px; padding: 8px; background: var(--surface);

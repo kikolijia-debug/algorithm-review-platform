@@ -64,7 +64,7 @@ export function barChart(data, opts = {}) {
   // 标签较长或类别较多时把 X 轴标签斜着放，避免名字叠在一起
   const labels = data.map((d) => String(d[labelKey] ?? ''));
   const maxLabelLen = labels.reduce((a, t) => Math.max(a, t.length), 0);
-  const tilted = !horizontal && (maxLabelLen > 4 || data.length > 12);
+  const tilted = !horizontal && (maxLabelLen > 4 || data.length > 8);
   const pad = horizontal
     ? { l: 112, r: 48, t: 12, b: 24 }
     : { l: 44, r: 14, t: 18, b: tilted ? 76 : 44 };
@@ -141,7 +141,7 @@ export function barChart(data, opts = {}) {
         kids.push(s('text', {
           x: cx, y: pad.t + H + 14, class: 'axis axis--label',
           'text-anchor': 'end', transform: `rotate(-38 ${cx} ${pad.t + H + 14})`,
-          text: (lbl.length > 10 ? lbl.slice(0, 10) + '…' : lbl) + labelUnit,
+          text: lbl + labelUnit,
         }, s('title', { text: lbl })));
       } else {
         kids.push(s('text', {
@@ -254,7 +254,8 @@ export function radarChart(labels, values, opts = {}) {
     const x = cx + Math.cos(a) * (R + 26);
     const y = cy + Math.sin(a) * (R + 22);
     const anchor = Math.abs(Math.cos(a)) < 0.3 ? 'middle' : Math.cos(a) > 0 ? 'start' : 'end';
-    kids.push(s('text', { x, y: y + 4, class: 'axis axis--radar', 'text-anchor': anchor, text: l.length > 8 ? l.slice(0, 8) : l },
+    // 完整显示知识点名称（不再截断），长名字靠外圈半径留出的空间放置
+    kids.push(s('text', { x, y: y + 4, class: 'axis axis--radar', 'text-anchor': anchor, text: l },
       s('title', { text: l })));
   });
   return svgWrap(width, height, kids);
@@ -423,7 +424,10 @@ export function networkGraph(nodes, edges, opts = {}) {
 
 export function heatmap(matrix, opts = {}) {
   const { width = 560, height = 260, xLabels = [], yLabels = [], max = null, color = '#0f6b4f' } = opts;
-  const pad = { l: 92, r: 12, t: 24, b: 30 };
+  // 知识点名较长时把列标签斜着放，保证文字完整显示、不互相压叠
+  const maxXLen = (xLabels || []).reduce((a, t) => Math.max(a, String(t).length), 0);
+  const tiltedX = maxXLen > 4;
+  const pad = { l: 92, r: 12, t: 24, b: tiltedX ? 96 : 34 };
   const W = width - pad.l - pad.r;
   const H = height - pad.t - pad.b;
   const rows = matrix.length || 1;
@@ -443,19 +447,29 @@ export function heatmap(matrix, opts = {}) {
         kids.push(s('text', {
           x: x + W / cols / 2, y: y + H / rows / 2 + 4,
           class: 'axis axis--cell', 'text-anchor': 'middle',
-          fill: t > 0.55 ? '#fff' : '#3c5148', text: shortNum(v),
+          // 深色格用白字、浅色格用深墨色，保证数字看得清
+          fill: t > 0.45 ? '#ffffff' : '#1c2f27', text: shortNum(v),
         }));
       }
     });
   });
   yLabels.forEach((l, i) => kids.push(s('text', {
     x: pad.l - 8, y: pad.t + (H / rows) * (i + 0.5) + 4, class: 'axis', 'text-anchor': 'end',
-    text: l.length > 9 ? l.slice(0, 9) + '…' : l,
+    text: l,
   }, s('title', { text: l }))));
-  xLabels.forEach((l, j) => kids.push(s('text', {
-    x: pad.l + (W / cols) * (j + 0.5), y: pad.t + H + 16, class: 'axis', 'text-anchor': 'middle',
-    text: l.length > 6 ? l.slice(0, 6) + '…' : l,
-  }, s('title', { text: l }))));
+  xLabels.forEach((l, j) => {
+    const cx = pad.l + (W / cols) * (j + 0.5);
+    if (tiltedX) {
+      kids.push(s('text', {
+        x: cx, y: pad.t + H + 14, class: 'axis axis--label', 'text-anchor': 'end',
+        transform: `rotate(-40 ${cx} ${pad.t + H + 14})`, text: l,
+      }, s('title', { text: l })));
+    } else {
+      kids.push(s('text', {
+        x: cx, y: pad.t + H + 16, class: 'axis', 'text-anchor': 'middle', text: l,
+      }, s('title', { text: l })));
+    }
+  });
   return svgWrap(width, height, kids);
 }
 

@@ -105,11 +105,11 @@ function classCard(c, allClasses, courseId, refresh) {
     U.meter(rate, { tone: rate >= 70 ? 'ok' : rate >= 40 ? 'brand' : 'warn', showValue: false }),
     h(
       'div',
-      { class: 'problem-card__foot' },
+      { class: 'problem-card__foot problem-card__foot--stack' },
       h(
         'button',
         {
-          class: 'btn btn--plain btn--xs',
+          class: 'btn btn--plain btn--xs invite-code',
           title: '点击复制邀请码',
           onclick: async () => {
             if (!c.invite_code) return;
@@ -123,9 +123,10 @@ function classCard(c, allClasses, courseId, refresh) {
         },
         '邀请码 ' + (c.invite_code || '—')
       ),
+      // 操作按钮单独一行：卡片变窄时也不会把「删除」挤到卡片外面
       h(
         'div',
-        { class: 'row', style: { gap: '6px' } },
+        { class: 'problem-card__actions' },
         U.btn('成员', { tone: 'soft', size: 'xs', onClick: () => openMembers(c, allClasses, refresh) }),
         U.btn('改名', { tone: 'plain', size: 'xs', onClick: () => openClassEditor(c, courseId, refresh) }),
         U.btn('删除', { tone: 'plain', size: 'xs', onClick: () => deleteClass(c, allClasses, refresh) })
