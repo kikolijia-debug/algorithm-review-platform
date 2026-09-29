@@ -85,8 +85,8 @@ function sidebar() {
     h(
       'div',
       { class: 'brand' },
-      h('div', { class: 'brand__logo' }, 'AL'),
-      h('div', { class: 'brand__text' }, h('b', {}, 'AlgorithmLab'), h('span', {}, '算法评审平台'))
+      U.logo(34),
+      h('div', { class: 'brand__text' }, h('b', {}, '涅槃'), h('span', {}, '算法评审平台'))
     ),
     h(
       'div',
@@ -140,7 +140,7 @@ function topbar() {
     '/teacher/experiments': ['算法实验', '算法实验台'],
   };
   const key = Object.keys(map).sort((a, b) => b.length - a.length).find((k) => p.startsWith(k));
-  const chain = map[key] || ['AlgorithmLab'];
+  const chain = map[key] || ['涅槃'];
   // 面包屑可点击：非最后一级点回上一级
   const parent = backTarget(p);
   chain.forEach((c, i, arr) => {

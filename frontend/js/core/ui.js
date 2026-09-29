@@ -7,6 +7,50 @@ import { h, esc, clear } from './dom.js';
 
 /* ------------------------------------------------------------------ 基础 */
 
+/**
+ * 平台标识「涅槃」：一只向上展翼的凤凰（原创几何图形，非赛事官方 logo）。
+ * 直接内联 SVG，缩放不糊，也方便在深浅两种底色上使用。
+ * 每次调用生成一组唯一的渐变 id，避免同一页多个标识互相抢 id。
+ */
+let logoSeq = 0;
+
+/** 生成标识的 SVG 源码；prefix 用于隔离渐变 id */
+export function logoSvg(prefix = 'nv') {
+  return `<svg viewBox="0 0 48 48" width="100%" height="100%" role="img" aria-label="涅槃 Nirvana">
+  <defs>
+    <linearGradient id="${prefix}-badge" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b3a2d"/><stop offset=".55" stop-color="#12684c"/><stop offset="1" stop-color="#1eb27c"/>
+    </linearGradient>
+    <linearGradient id="${prefix}-feather" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/><stop offset=".55" stop-color="#dffbee"/><stop offset="1" stop-color="#9ff0cd"/>
+    </linearGradient>
+    <linearGradient id="${prefix}-ember" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffe6b0"/><stop offset="1" stop-color="#dc9c33"/>
+    </linearGradient>
+  </defs>
+  <rect width="48" height="48" rx="13" fill="url(#${prefix}-badge)"/>
+  <rect x=".6" y=".6" width="46.8" height="46.8" rx="12.6" fill="none" stroke="#fff" stroke-opacity=".15" stroke-width="1.2"/>
+  <g fill="url(#${prefix}-feather)">
+    <path d="M22.6 27.8L3.4 5.4l3.0 12.2 2.0 8.2z"/>
+    <path d="M22.6 27.8L12.2 8.4l1.4 10.4 1.0 6.6z"/>
+    <path d="M25.4 27.8L44.6 5.4l-3.0 12.2-2.0 8.2z"/>
+    <path d="M25.4 27.8L35.8 8.4l-1.4 10.4-1.0 6.6z"/>
+    <path d="M24 12.2c2.6 5.6 3.9 10.5 3.9 14.7 0 5.2-1.3 9.8-3.9 13.9-2.6-4.1-3.9-8.7-3.9-13.9 0-4.2 1.3-9.1 3.9-14.7z"/>
+  </g>
+  <path d="M24 4.6l1.8 4.1-1.8 3.5-1.8-3.5z" fill="url(#${prefix}-ember)"/>
+  <path d="M24 18.4l2.2 5.4-2.2 5.9-2.2-5.9z" fill="url(#${prefix}-ember)"/>
+</svg>`;
+}
+
+/** 标识图标（方形），用于侧栏、落地页与登录页 */
+export function logo(size = 34) {
+  return h('span', {
+    class: 'logo-mark',
+    style: { width: size + 'px', height: size + 'px' },
+    html: logoSvg('nv' + ++logoSeq),
+  });
+}
+
 export function card(...children) {
   return h('section', { class: 'card' }, ...children);
 }

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# AlgorithmLab · 算法设计与分析课程评审平台 —— 服务器一键部署脚本
+# 涅槃 Nirvana · 算法设计与分析课程评审平台 —— 服务器一键部署脚本
 #
 # 适用：Ubuntu 22.04 / 24.04（已在阿里云 ECS Ubuntu 24.04、2 核 2G 上验证）
 #
@@ -84,7 +84,7 @@ mkdir -p "$APP_DIR/backend/data"
 log "注册 systemd 服务（$SERVICE，内部端口 $PORT）"
 cat > "/etc/systemd/system/${SERVICE}.service" <<EOF
 [Unit]
-Description=AlgorithmLab · 算法设计与分析课程评审平台
+Description=Nirvana · 算法设计与分析课程评审平台
 After=network-online.target
 Wants=network-online.target
 

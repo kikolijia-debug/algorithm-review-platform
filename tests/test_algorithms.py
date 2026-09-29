@@ -354,7 +354,7 @@ def test_judge():
 
 def main() -> int:
     print("=" * 64)
-    print("AlgorithmLab · 核心算法单元测试")
+    print("涅槃 Nirvana · 核心算法单元测试")
     print("=" * 64)
     for fn in (
         test_flow, test_assignment, test_aggregation, test_anomaly,

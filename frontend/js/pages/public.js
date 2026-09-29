@@ -5,6 +5,7 @@ import { state, save, emit } from '../core/store.js';
 import * as api from '../core/api.js';
 import * as router from '../core/router.js';
 import { ok, fail, toast } from '../core/toast.js';
+import { logo } from '../core/ui.js';
 
 /* ------------------------------------------------------------- 首页 */
 
@@ -30,8 +31,8 @@ export async function renderLanding() {
     h(
       'div',
       { class: 'landing__brand' },
-      h('div', { class: 'brand__logo' }, 'AL'),
-      h('div', {}, h('b', {}, 'AlgorithmLab'), h('span', {}, '算法设计与分析 · 课程评审平台'))
+      logo(38),
+      h('div', {}, h('b', {}, '涅槃'), h('span', {}, '算法设计与分析 · 课程评审平台'))
     ),
     h('div', { class: 'grow' }),
     h('a', { class: 'btn btn--ghost', href: '#/problems' }, '题库'),
@@ -111,7 +112,7 @@ export async function renderLanding() {
   const foot = h(
     'footer',
     { class: 'landing__foot' },
-    h('span', {}, 'AlgorithmLab · 算法设计与分析课程评审平台'),
+    h('span', {}, '涅槃 · 算法设计与分析课程评审平台'),
     h('span', {}, 'python run.py 即可本地运行')
   );
 
@@ -235,7 +236,7 @@ export function renderLogin() {
       'div',
       { class: 'login__card' },
       h('div', { class: 'small', style: { color: 'var(--brand)', letterSpacing: '.14em' } }, '账号登录'),
-      h('h2', {}, '登录 AlgorithmLab'),
+      h('h2', {}, '登录涅槃'),
       h('p', { class: 'sub' }, '选择身份并使用已注册的账号进入对应工作台'),
       roleGrid,
       h('div', { class: 'col', style: { gap: '14px' } },
@@ -271,8 +272,8 @@ export function renderLogin() {
     h(
       'div',
       { class: 'login__brand' },
-      h('div', { class: 'brand__logo' }, 'AL'),
-      h('div', {}, h('b', { style: { color: '#eafaf3' } }, 'AlgorithmLab'), h('span', { style: { color: '#6d8b80', fontSize: '11px', letterSpacing: '.1em' } }, '算法评审平台'))
+      logo(38),
+      h('div', {}, h('b', { style: { color: '#eafaf3' } }, '涅槃'), h('span', { style: { color: '#6d8b80', fontSize: '11px', letterSpacing: '.1em' } }, '算法评审平台'))
     ),
     h(
       'h1',
@@ -400,7 +401,7 @@ export function renderRegister() {
       'div',
       { class: 'login__card' },
       h('div', { class: 'small', style: { color: 'var(--brand)', letterSpacing: '.14em' } }, '创建账号'),
-      h('h2', {}, '注册 AlgorithmLab'),
+      h('h2', {}, '注册涅槃'),
       h('p', { class: 'sub' }, '教师注册后自动创建自己的课程，学生凭邀请码加入班级'),
       roleGrid,
       h('div', { class: 'col', style: { gap: '14px' } },
@@ -423,8 +424,8 @@ export function renderRegister() {
     'div',
     { class: 'login__left' },
     h('div', { class: 'login__brand' },
-      h('div', { class: 'brand__logo' }, 'AL'),
-      h('div', {}, h('b', { style: { color: '#eafaf3' } }, 'AlgorithmLab'),
+      logo(38),
+      h('div', {}, h('b', { style: { color: '#eafaf3' } }, '涅槃'),
         h('span', { style: { color: '#6d8b80', fontSize: '11px', letterSpacing: '.1em' } }, '算法评审平台'))),
     h('h1', { class: 'login__title' }, '把自己的班级', h('br'), h('em', {}, '搬进平台'), '，马上开课。'),
     h('p', { class: 'login__sub' },

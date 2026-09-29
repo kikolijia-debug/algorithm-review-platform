@@ -1,5 +1,5 @@
 /* =========================================================================
-   AlgorithmLab · 算法设计与分析课程评审平台
+   涅槃 Nirvana · 算法设计与分析课程评审平台
    设计令牌 / 布局 / 组件 / 页面样式（单一入口，无外部依赖）
    -------------------------------------------------------------------------
    视觉语言：深浅双主题；主色沿用教学平台常用的「深松绿 → 青绿」渐变，
@@ -123,11 +123,7 @@ code, pre { font-family: var(--font-mono); }
 /* --------------------------------------------------------- 3. 启动画面 */
 .app-root { min-height: 100vh; }
 .boot { min-height: 100vh; display: grid; place-content: center; justify-items: center; gap: 14px; }
-.boot__logo {
-  width: 56px; height: 56px; border-radius: 16px; display: grid; place-items: center;
-  background: linear-gradient(140deg, var(--brand), var(--brand-2)); color: #fff;
-  font-weight: 700; letter-spacing: 0.06em; box-shadow: var(--shadow);
-}
+.boot__logo { width: 56px; height: 56px; border-radius: 16px; display: block; box-shadow: var(--shadow); }
 .boot__text { color: var(--muted); font-size: 13px; }
 
 /* --------------------------------------------------------- 4. 应用外壳 */
@@ -161,12 +157,18 @@ code, pre { font-family: var(--font-mono); }
 .shell.is-collapsed .nav__item { justify-content: center; padding: 10px 0; }
 
 .brand { display: flex; align-items: center; gap: 10px; padding: 16px 16px 14px; }
-.brand__logo {
+/* 平台标识：内联 SVG，任意尺寸都不糊 */
+.logo-mark {
+  display: block; flex: none; border-radius: 26%; overflow: hidden; line-height: 0;
+}
+.logo-mark > svg { display: block; width: 100%; height: 100%; }
+.brand__logo {  /* 兼容旧写法 */
   width: 34px; height: 34px; border-radius: 10px; flex: none;
   background: linear-gradient(140deg, #2fbd85, #0e9c8c);
   display: grid; place-items: center; color: #04140f; font-weight: 800; font-size: 13px;
   box-shadow: 0 6px 18px -8px rgba(47, 189, 133, 0.8);
 }
+.brand .logo-mark { box-shadow: 0 6px 18px -8px rgba(47, 189, 133, 0.7); }
 .brand__text b { display: block; color: #eaf6f1; font-size: 14.5px; letter-spacing: 0.01em; }
 .brand__text span { display: block; color: #6f8c81; font-size: 11px; letter-spacing: 0.08em; }
 
