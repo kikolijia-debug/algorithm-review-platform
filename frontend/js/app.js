@@ -398,12 +398,10 @@ function guard(ctx) {
     const studentOnly = ctx.path === '/student' || ctx.path.startsWith('/student/');
     const teacherOnly = ctx.path.startsWith('/teacher');
     if (teacher && studentOnly) {
-      toast('教师账号没有「学习动态」，已返回教学看板', 'warn', 4000);
       router.navigate('/teacher');
       return false;
     }
     if (!teacher && teacherOnly) {
-      toast('该页面仅教师 / 助教可用', 'warn', 4000);
       router.navigate('/student');
       return false;
     }
