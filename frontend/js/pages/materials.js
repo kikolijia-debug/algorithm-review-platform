@@ -70,7 +70,16 @@ export function renderMaterials(data, container, ctx) {
         ...groups.map((g) => chapterCard(g, teacher, data.chapters || [], () => router.resolve())))
     : U.empty('还没有课件', teacher ? '点右上角「上传课件」把讲义放进来。' : '教师上传后会显示在这里。');
 
-  return h('div', {}, head, body);
+  return h(
+    'div',
+    {},
+    head,
+    teacher
+      ? U.note('教师可以直接在这里维护课件：上传新讲义、替换旧文件、改标题与所属章节、'
+          + '用上下箭头调整同一章内的顺序，删除则会连服务器上的文件一起移除。', 'ok')
+      : null,
+    h('div', { class: 'mt12' }, body)
+  );
 }
 
 function chapterCard(group, teacher, chapters, refresh) {
@@ -108,6 +117,21 @@ function chapterCard(group, teacher, chapters, refresh) {
             h('a', { class: 'btn btn--soft btn--xs', href: fileUrl(m), target: '_blank', rel: 'noopener' }, '打开'),
             h('a', { class: 'btn btn--plain btn--xs', href: fileUrl(m), download: m.filename }, '下载'),
             teacher
+              ? U.btn('', {
+                  tone: 'plain', size: 'xs', icon: U.icon.up, title: '与上一份课件交换位置',
+                  onClick: () => moveMaterial(m, 'up', refresh),
+                })
+              : null,
+            teacher
+              ? U.btn('', {
+                  tone: 'plain', size: 'xs', icon: U.icon.down, title: '与下一份课件交换位置',
+                  onClick: () => moveMaterial(m, 'down', refresh),
+                })
+              : null,
+            teacher
+              ? U.btn('替换', { tone: 'plain', size: 'xs', onClick: () => openReplace(m, refresh) })
+              : null,
+            teacher
               ? U.btn('编辑', { tone: 'plain', size: 'xs', onClick: () => openEdit(m, chapters, refresh) })
               : null,
             teacher
@@ -135,6 +159,50 @@ function chapterCard(group, teacher, chapters, refresh) {
       )
     )
   );
+}
+
+/* ------------------------------------------------------------ 排序 / 替换 */
+
+async function moveMaterial(m, direction, refresh) {
+  try {
+    await api.put('/api/materials/' + m.id, { move: direction });
+    refresh();
+  } catch (e) {
+    fail(e.message);
+  }
+}
+
+function openReplace(m, refresh) {
+  const fileInput = h('input', { type: 'file', class: 'input', accept: '.pdf,.ppt,.pptx,.doc,.docx,.zip,.md,.txt' });
+  U.modal('替换课件文件 · ' + m.title, h('div', { class: 'col', style: { gap: '14px' } },
+    U.note(`当前文件：${m.filename}（${m.size_mb} MB）。替换后标题、章节与顺序都不变，旧文件会从服务器删除。`, 'warn'),
+    U.field('新的课件文件', fileInput, { required: true, hint: '支持 pdf / ppt(x) / doc(x) / zip / md / txt，单文件不超过 60 MB' })
+  ), {
+    width: 560,
+    actions: (close) => [
+      U.btn('取消', { tone: 'ghost', onClick: close }),
+      U.btn('替换', {
+        tone: 'primary',
+        onClick: async () => {
+          const file = fileInput.files && fileInput.files[0];
+          if (!file) return fail('请选择要替换成的文件');
+          if (file.size > 60 * 1024 * 1024) return fail('文件超过 60 MB');
+          try {
+            const dataUrl = await readAsDataURL(file);
+            await api.post('/api/materials/' + m.id + '/file', {
+              filename: file.name,
+              content: String(dataUrl).split(',')[1] || '',
+            });
+            ok('课件已替换');
+            close();
+            refresh();
+          } catch (e) {
+            fail(e.message || '替换失败');
+          }
+        },
+      }),
+    ],
+  });
 }
 
 /* ------------------------------------------------------------ 上传 / 编辑 */

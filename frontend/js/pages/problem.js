@@ -4,7 +4,7 @@
  *  - 主观题：左侧题面，右侧分节作答编辑器 + 提交状态与互评结果。
  */
 
-import { h, clear } from '../core/dom.js';
+import { h, clear, inlineMd } from '../core/dom.js';
 import { state, isTeacher } from '../core/store.js';
 import * as api from '../core/api.js';
 import * as router from '../core/router.js';
@@ -102,7 +102,7 @@ export function renderProblem({ problem, meta }, container) {
 }
 
 function section(title, body) {
-  return h('section', {}, h('h4', {}, title), h('div', { class: 'prose' }, body || '—'));
+  return h('section', {}, h('h4', {}, title), h('div', { class: 'prose', html: inlineMd(body || '—') }));
 }
 
 /* --------------------------------------------------------- 编程题面板 */

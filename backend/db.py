@@ -100,7 +100,9 @@ CREATE TABLE IF NOT EXISTS problems (
     rubric          TEXT DEFAULT '[]',
     created_by      INTEGER,
     created_at      TEXT NOT NULL,
-    tags            TEXT DEFAULT '[]'
+    tags            TEXT DEFAULT '[]',
+    gen_key         TEXT,                   -- 智能出题的指纹（模板+难度+参数），用于去重
+    solution        TEXT                    -- 参考程序（仅教师可见）
 );
 
 CREATE TABLE IF NOT EXISTS test_cases (
@@ -367,6 +369,13 @@ def migrate(conn: sqlite3.Connection) -> None:
     if "chapter" not in prob_cols:
         conn.execute("ALTER TABLE problems ADD COLUMN chapter TEXT")
         conn.commit()
+
+    # 3b. 智能出题：记录生成指纹（去重用）与参考程序（教师可见）
+    prob_cols = [r["name"] for r in conn.execute("PRAGMA table_info(problems)")]
+    for col, ddl in (("gen_key", "TEXT"), ("solution", "TEXT")):
+        if col not in prob_cols:
+            conn.execute(f"ALTER TABLE problems ADD COLUMN {col} {ddl}")
+    conn.commit()
 
     # 4. 互评分配需要「教师确认后发布」，给作业加分配状态列
     asg_cols = [r["name"] for r in conn.execute("PRAGMA table_info(assignments)")]

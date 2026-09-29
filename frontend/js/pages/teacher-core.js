@@ -173,7 +173,26 @@ function assignmentRow(a, problems, chapters) {
       h('button', {
         class: 'btn btn--plain btn--xs',
         onclick: () => editAssignment(a, problems, () => router.resolve(), chapters),
-      }, '编辑设置'))
+      }, '编辑设置'),
+      h('button', {
+        class: 'btn btn--plain btn--xs',
+        onclick: async () => {
+          const yes = await confirmDialog({
+            title: '删除作业',
+            message: `确定删除《${a.title}》吗？该作业下的提交、互评任务与评分记录都会一并删除，且不可恢复。`,
+            confirmText: '删除',
+            danger: true,
+          });
+          if (!yes) return;
+          try {
+            await api.del(`/api/assignments/${a.id}`);
+            ok('作业已删除');
+            router.resolve();
+          } catch (e) {
+            fail(e.message);
+          }
+        },
+      }, '删除'))
   );
 }
 

@@ -299,6 +299,14 @@ export function renderProblemList({ problems, courses, chapters }, _container, c
       { value: chapter, onchange: (e) => { chapter = e.target.value; paint(); } }
     ),
     h('div', { class: 'grow' }),
+    teacher
+      ? U.btn('智能出题', {
+          tone: 'soft', icon: U.icon.spark,
+          onClick: () => import('./problem-gen.js').then((m) => m.openProblemGenerator({
+            chapters, chapter: chapter === 'all' ? '' : chapter, onSaved: () => router.resolve(),
+          })),
+        })
+      : null,
     teacher ? U.btn('新建题目', { tone: 'primary', icon: U.icon.plus, onClick: () => openProblemEditor(null, () => router.resolve()) }) : null
   );
 

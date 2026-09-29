@@ -863,7 +863,7 @@ export function renderReviewAdmin({ assignments, selected, allocs, results, anom
       h('div', { style: { marginBottom: '16px' } },
         U.card(
           U.cardHead(r.problem_title + ' · 评分结果', {
-            sub: `共 ${r.rows.length} 份提交 · 点「谁评的」可以看到每位评审者给的分与文字意见`,
+            sub: `共 ${r.rows.length} 份提交 · 点「评审人」名字可以看到他给的分与文字意见`,
           }),
           U.table(
             [
@@ -874,11 +874,19 @@ export function renderReviewAdmin({ assignments, selected, allocs, results, anom
               { title: '极差', width: '80px', class: 'num', render: (x) => (x.spread > 25 ? h('span', { class: 'tone-danger' }, x.spread) : x.spread) },
               { title: '评审数', width: '80px', class: 'num', render: (x) => x.n_reviews },
               {
-                title: '', width: '86px',
-                render: (x) => h('button', {
-                  class: 'btn btn--plain btn--xs',
-                  onclick: () => openReviewDetail(x, r.problem_title),
-                }, '谁评的'),
+                title: '评审人', width: '150px',
+                render: (x) => {
+                  const ds = x.details || [];
+                  if (!ds.length) return h('span', { class: 'small muted' }, '还没有人评');
+                  // 直接把评审者的名字做成按钮：教师一眼能看出是谁评的，点进去看分数与意见
+                  const head = ds[0].reviewer_name || ('#' + ds[0].reviewer_id);
+                  const label = ds.length > 1 ? `${head} 等 ${ds.length} 人` : head;
+                  return h('button', {
+                    class: 'btn btn--soft btn--xs',
+                    title: ds.map((d) => `${d.reviewer_name || '#' + d.reviewer_id}：${d.total == null ? '—' : d.total} 分`).join('\n'),
+                    onclick: () => openReviewDetail(x, r.problem_title),
+                  }, label);
+                },
               },
             ],
             r.rows, { dense: true })
@@ -1288,9 +1296,11 @@ export function renderSimilarity({ problems, data }) {
       h('div', { class: 'conclusion' },
         h('b', {}, '相似度阈值是什么？'),
         h('p', { class: 'mt8' },
-          '系统把每份代码切成固定长度的「指纹」（k-gram 的滚动哈希取窗口最小值），'
-          + '两份代码的相似度 = 它们共享的指纹数 ÷ 指纹并集大小，取值 0~100%。'
-          + '阈值就是「相似度超过多少才在下面列出来」。')),
+          '系统不看变量名和注释，而是把每份代码按顺序切成许多很短的片段，'
+          + '相当于给代码取一串「指纹」；然后数两份代码里有多少片段是重复出现的——'
+          + '重复的越多，相似度越高（0~100%）。'
+          + '阈值就是一条分数线：相似度超过它的代码对才会列在下面。'
+          + '例如填 0.6，就只列出相似度 60% 以上的那些。')),
         h('p', { class: 'mt8' },
           '推荐用法：阈值 0.75 以上基本可以认定是同一份代码改的；0.6~0.75 属于「值得看一眼」，'
           + '可能是同学之间讨论后写法趋同；低于 0.6 误报会明显变多。'),

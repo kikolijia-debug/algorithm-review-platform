@@ -16,6 +16,7 @@ import time
 from datetime import datetime
 
 from . import db, judge as J
+from . import genbank as GB
 from .algo import aggregation as AG
 from .algo import anomaly as AN
 from .algo import assignment as AS
@@ -565,6 +566,10 @@ def api_problems(ctx):
         p["tags"] = jload(p["tags"], [])
         p["rubric"] = jload(p["rubric"], [])
         p["samples"] = jload(p["samples"], [])
+        # 参考程序与生成指纹属于教师侧信息，不发给学生
+        if not is_teacher(ctx["user"]):
+            p.pop("solution", None)
+            p.pop("gen_key", None)
         p["n_cases"] = db.q1(
             "SELECT COUNT(*) c FROM test_cases WHERE problem_id=?", (p["id"],))["c"]
         p["submit_count"] = db.q1(
@@ -591,6 +596,9 @@ def api_problem(ctx):
     d["tags"] = jload(d["tags"], [])
     d["rubric"] = jload(d["rubric"], [])
     d["samples"] = jload(d["samples"], [])
+    if not is_teacher(ctx["user"]):
+        d.pop("solution", None)
+        d.pop("gen_key", None)
     cases = uid_rows(
         "SELECT * FROM test_cases WHERE problem_id=? ORDER BY order_index,id", (pid,))
     d["n_test_cases"] = len(cases)
@@ -613,13 +621,68 @@ def api_problem(ctx):
     return ok(d)
 
 
+@route("GET", "/api/problems/templates", "teacher")
+def api_problem_templates(ctx):
+    """智能出题可用的模板清单（按章节列出，供前端展示可生成的题型）。"""
+    return ok(GB.template_overview())
+
+
+#: 每个账号最近的出题时间戳，用于限制刷接口的频率
+_GEN_HITS: dict[int, list[float]] = {}
+
+
+@route("POST", "/api/problems/generate", "teacher")
+def api_problem_generate(ctx):
+    """智能出题：按「章节 + 难度」现场生成一道编程题（只返回草稿，不直接入库）。
+
+    生成时会与本题库里已有的题目比对：
+    先看生成指纹是否撞车，再算题面相似度；两者都过关才返回。
+    """
+    b = ctx["body"]
+    chapter = (b.get("chapter") or "").strip() or None
+    try:
+        difficulty = int(b.get("difficulty") or 3)
+    except (TypeError, ValueError):
+        return err(400, "难度必须是 1~5 的整数")
+    cid = active_course_id(ctx, b.get("course_id"))
+
+    sql = "SELECT title,statement,gen_key FROM problems"
+    args = []
+    if cid:
+        sql += " WHERE course_id=?"
+        args.append(cid)
+    rows = uid_rows(sql, args)
+    keys = {r["gen_key"] for r in rows if r.get("gen_key")}
+    texts = [(r["title"], r.get("statement") or "") for r in rows]
+
+    # 防止连点按钮或脚本刷接口：同一账号 1 秒内最多 6 次
+    now = time.time()
+    hist = _GEN_HITS.setdefault(ctx["user"]["id"], [])
+    hist[:] = [t for t in hist if now - t < 1.0]
+    if len(hist) >= 6:
+        return err(429, "出题太频繁了，稍等一下再试")
+    hist.append(now)
+
+    try:
+        out = GB.generate(
+            chapter, difficulty, keys, texts,
+            avoid_keys=set(b.get("avoid") or []),
+            allow_other_chapter=bool(b.get("widen", True)),
+        )
+    except Exception as exc:                      # noqa: BLE001 - 兜底成可读错误
+        return err(500, "生成失败：%s" % exc)
+    draft = out["draft"]
+    draft["course_id"] = cid
+    return ok({"draft": draft, "report": out["report"]})
+
+
 @route("POST", "/api/problems", "teacher")
 def api_problem_create(ctx):
     b = ctx["body"]
     pid = db.ex(
         "INSERT INTO problems(course_id,title,type,difficulty,topics,statement,input_format,"
         "output_format,constraints,samples,time_limit_ms,memory_limit_mb,score,rubric,created_by,"
-        "created_at,tags,chapter) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "created_at,tags,chapter,gen_key,solution) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (
             active_course_id(ctx, b.get("course_id")),
             b.get("title") or "未命名题目", b.get("type") or "programming",
@@ -631,6 +694,8 @@ def api_problem_create(ctx):
             db.jdumps(b.get("rubric") or []), ctx["user"]["id"], db.now(),
             db.jdumps(b.get("tags") or []),
             b.get("chapter") or None,
+            b.get("gen_key") or None,
+            b.get("solution") or None,
         ),
     )
     for i, tc in enumerate(b.get("test_cases") or []):
@@ -650,7 +715,8 @@ def api_problem_update(ctx):
     b = ctx["body"]
     sets, args = [], []
     for k in ("title", "type", "difficulty", "statement", "input_format", "output_format",
-              "constraints", "time_limit_ms", "memory_limit_mb", "score", "chapter"):
+              "constraints", "time_limit_ms", "memory_limit_mb", "score", "chapter",
+              "solution", "gen_key"):
         if b.get(k) is not None:
             sets.append(k + "=?")
             args.append(b[k])
@@ -849,6 +915,19 @@ def api_assignment_update(ctx):
             db.ex(
                 "INSERT INTO assignment_problems(assignment_id,problem_id,score,order_index) "
                 "VALUES(?,?,?,?)", (aid, pid, 100, i))
+    return ok({"id": int(aid)})
+
+
+@route("DELETE", "/api/assignments/{id}", "teacher")
+def api_assignment_delete(ctx):
+    """删除作业：连同它的评审任务、评分、提交与异常记录一起清掉。"""
+    aid = ctx["params"]["id"]
+    if not db.q1("SELECT id FROM assignments WHERE id=?", (aid,)):
+        return err(404, "作业不存在")
+    for table in ("reviews", "allocations", "anomalies", "subjective_submissions",
+                  "submissions", "assignment_problems"):
+        db.ex(f"DELETE FROM {table} WHERE assignment_id=?", (aid,))
+    db.ex("DELETE FROM assignments WHERE id=?", (aid,))
     return ok({"id": int(aid)})
 
 

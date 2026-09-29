@@ -22,6 +22,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from backend import judge as J  # noqa: E402
+from backend import genbank as GB  # noqa: E402
 from backend.algo import ability as AB  # noqa: E402
 from backend.algo import aggregation as AG  # noqa: E402
 from backend.algo import anomaly as AN  # noqa: E402
@@ -352,13 +353,78 @@ def test_judge():
 # ---------------------------------------------------------------- main
 
 
+# ------------------------------------------------- 9. 智能出题（模板生成）
+
+
+def test_genbank():
+    section("[9] 智能出题：模板生成 + 去重")
+    bad = []
+    for tpl in GB.TEMPLATES:
+        d = int(round(sum(tpl["level"]) / 2.0))
+        draft = GB.make_draft(tpl, d, seed=20260929)
+        # 1) 导出的参考程序必须是自包含、可独立运行的：这里真的执行一遍
+        ns = {"__name__": "reference"}
+        exec(compile(draft["solution"], "<genbank-solution>", "exec"), ns)
+        solve = ns["solve"]
+        for c in draft["test_cases"]:
+            if str(solve(c["input"])).split() != c["expected"].split():
+                bad.append("%s/%s" % (tpl["key"], c["name"]))
+        # 2) 题面与学生可见的样例要齐全
+        if not draft["statement"] or not draft["input_format"] or not draft["output_format"]:
+            bad.append(tpl["key"] + "/题面缺失")
+        if not draft["samples"] or not draft["chapter"] or not draft["gen_key"]:
+            bad.append(tpl["key"] + "/元信息缺失")
+    check("所有模板生成的期望输出与参考程序一致", not bad, ",".join(bad[:6]))
+
+    keys = [t["key"] for t in GB.TEMPLATES]
+    check("模板覆盖到全部有编程内容的章节",
+          {"ch1", "ch2", "ch3", "ch4", "ch5", "ch6", "ch7", "ch8", "ch9", "ch10", "ch11"}
+          <= {t["chapter"] for t in GB.TEMPLATES},
+          ",".join(sorted({t["chapter"] for t in GB.TEMPLATES})))
+    check("模板 key 唯一", len(keys) == len(set(keys)))
+
+    # 3) 参考答案能通过平台自己的评测引擎（端到端）
+    draft = GB.make_draft(GB.TEMPLATE_BY_KEY["ARROWS"], 3, seed=4242)
+    res = J.judge_submission(
+        draft["solution"], "python",
+        [{"id": i, "name": c["name"], "input": c["input"], "expected": c["expected"],
+          "score": 10} for i, c in enumerate(draft["test_cases"])],
+        time_limit_ms=3000, memory_limit_mb=256, total_score=100)
+    check("生成的参考程序能被评测机判为 Accepted",
+          res.get("verdict") == "Accepted", str(res.get("verdict")))
+
+    # 4) 去重：同一章节 + 难度连生成两次，第二次必须换到不重复的题
+    a = GB.generate("ch5", 3, set(), [])
+    b = GB.generate("ch5", 3, {a["draft"]["gen_key"]}, [(a["draft"]["title"], a["draft"]["statement"])])
+    check("连生成两次的题目指纹不同", a["draft"]["gen_key"] != b["draft"]["gen_key"])
+    check("第二次生成避开了已有题面（相似度低于阈值）",
+          b["report"]["max_similarity"] < GB.DUPLICATE_THRESHOLD,
+          str(b["report"]["max_similarity"]))
+    # 整章只有一个模板、且不许换章节时：直接把「撞车」如实报告出来
+    c = GB.generate("ch9", 3, set(), [], allow_other_chapter=False)
+    e = GB.generate("ch9", 3, set(), [(c["draft"]["title"], c["draft"]["statement"])],
+                    allow_other_chapter=False)
+    check("模板用尽时会如实报告相似度并标记 reused",
+          e["report"]["reused"] and e["report"]["max_similarity"] >= GB.DUPLICATE_THRESHOLD,
+          str(e["report"]))
+    check("题面相似度：同一段文字为 1", GB.text_similarity("给定 n 个整数", "给定 n 个整数") == 1.0)
+    check("题面相似度：无关题面很低",
+          GB.text_similarity("给定一张有向图求最大流", "统计字符串的最小循环节长度") < 0.15)
+    check("已有的 gen_key 会被识别为重复",
+          GB.generate("ch3", 3, {GB.make_draft(GB.TEMPLATE_BY_KEY["HUFFMAN"], 3, 1)["gen_key"]},
+                      [])["draft"]["gen_key"] != GB.make_draft(GB.TEMPLATE_BY_KEY["HUFFMAN"], 3, 1)["gen_key"])
+
+
+# ---------------------------------------------------------------- main
+
+
 def main() -> int:
     print("=" * 64)
     print("涅槃 Nirvana · 核心算法单元测试")
     print("=" * 64)
     for fn in (
         test_flow, test_assignment, test_aggregation, test_anomaly,
-        test_ability, test_similarity, test_complexity, test_judge,
+        test_ability, test_similarity, test_complexity, test_judge, test_genbank,
     ):
         fn()
     print("\n" + "=" * 64)

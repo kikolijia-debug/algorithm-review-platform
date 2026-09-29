@@ -189,6 +189,10 @@ def main() -> int:
           probe=lambda p: len(p.get("data", {}).get("rows", [])) > 0
           and d(p, "data", "chapters"))
     check("课件列表（学生可见）", "/api/materials", role="student")
+    check("智能出题模板清单（教师）", "/api/problems/templates", role="teacher",
+          probe=lambda p: len(p.get("data", [])) >= 10
+          and all("chapter" in t and len(t.get("level", [])) == 2 for t in p["data"]))
+    check("智能出题模板清单（学生 403）", "/api/problems/templates", role="student", want=403)
     mats = d(call("/api/materials", role="teacher")[1], "data", "rows", default=[])
     if mats:
         check("课件元数据完整（页数 / 体积 / 下载地址）",
@@ -212,6 +216,56 @@ def main() -> int:
             print(f"      课件下载异常: {exc}")
         _report("静态下发课件 PDF", ok_file,
                 "" if ok_file else "课件文件无法通过 /courseware/ 访问")
+
+    # ---------------------------------------------------------- 课件管理
+    section("3a. 课件管理（教师可自行调整）")
+    if not READONLY:
+        by_chapter = {}
+        for m in mats:
+            by_chapter.setdefault(m.get("chapter"), []).append(m)
+        pair = next((v for v in by_chapter.values() if len(v) >= 2), None)
+        if pair:
+            a, b = pair[0], pair[1]
+
+            def _chapter_order(chapter):
+                rows = d(call("/api/materials" + enc(chapter=chapter), role="teacher")[1],
+                         "data", "rows", default=[])
+                return [r["id"] for r in rows]
+
+            before = _chapter_order(a["chapter"])
+            check("课件下移（教师）", f"/api/materials/{a['id']}", "PUT", {"move": "down"},
+                  role="teacher", probe=lambda p: p.get("ok"))
+            moved = _chapter_order(a["chapter"])
+            _report("下移后顺序确实变了", moved != before, f"{before} -> {moved}")
+            check("课件上移（还原顺序）", f"/api/materials/{a['id']}", "PUT", {"move": "up"},
+                  role="teacher", probe=lambda p: p.get("ok"))
+            _report("上移后恢复原顺序", _chapter_order(a["chapter"]) == before, "顺序未还原")
+            check("调整课件顺序（学生 403）", f"/api/materials/{a['id']}", "PUT",
+                  {"move": "up"}, role="student", want=403)
+            check("已经在最前面时再上移报 400", f"/api/materials/{a['id']}", "PUT",
+                  {"move": "up"}, role="teacher", want=400)
+
+        import base64 as _b64
+
+        _status, tmp_mat = call("/api/materials", "POST",
+                                {"chapter": "ch1", "title": f"[审计] 临时课件 {STAMP}",
+                                 "filename": "audit-tmp.txt",
+                                 "content": _b64.b64encode("第一版内容".encode("utf-8")).decode()},
+                                role="teacher")
+        tmp_id = d(tmp_mat, "data", "id")
+        _report("上传临时课件", bool(tmp_id), str(tmp_mat)[:140])
+        if tmp_id:
+            old_name = d(tmp_mat, "data", "filename")
+            check("替换课件文件（教师）", f"/api/materials/{tmp_id}/file", "POST",
+                  {"filename": "audit-tmp-v2.txt",
+                   "content": _b64.b64encode("第二版内容".encode("utf-8")).decode()},
+                  role="teacher",
+                  probe=lambda p: p.get("ok") and p["data"]["filename"] != old_name)
+            check("替换课件文件（学生 403）", f"/api/materials/{tmp_id}/file", "POST",
+                  {"filename": "x.txt", "content": _b64.b64encode(b"x").decode()},
+                  role="student", want=403)
+            check("删除临时课件", f"/api/materials/{tmp_id}", "DELETE", {}, role="teacher",
+                  probe=lambda p: p.get("ok"))
     if probs:
         pid = probs[0]["id"]
         check("题目详情（教师可见测试数据）", f"/api/problems/{pid}", role="teacher",
@@ -244,6 +298,44 @@ def main() -> int:
             check("修改已生效", f"/api/problems/{pid_new}", role="teacher",
                   probe=lambda p: p["data"]["title"].endswith("v2 " + STAMP)
                   and p["data"]["time_limit_ms"] == 2000)
+
+    # ---------------------------------------------------------- 智能出题
+    section("3b. 智能出题（按章节 + 难度生成，且不与题库重复）")
+    gen_draft = None
+    if not READONLY:
+        first = check("按章节 + 难度生成题目", "/api/problems/generate", "POST",
+                      {"chapter": "ch5", "difficulty": 3}, role="teacher",
+                      probe=lambda p: (d(p, "data", "draft", "statement")
+                                       and len(d(p, "data", "draft", "test_cases", default=[])) >= 4
+                                       and d(p, "data", "draft", "solution", default="").startswith("def solve")
+                                       and d(p, "data", "report", "max_similarity") is not None))
+        check("智能出题（学生 403）", "/api/problems/generate", "POST",
+              {"chapter": "ch5", "difficulty": 3}, role="student", want=403)
+        check("难度参数非法时报 400", "/api/problems/generate", "POST",
+              {"chapter": "ch5", "difficulty": "很高"}, role="teacher", want=400)
+
+        gen_draft = d(first, "data", "draft")
+        again = call("/api/problems/generate", "POST",
+                     {"chapter": "ch5", "difficulty": 3,
+                      "avoid": [gen_draft.get("gen_key")] if gen_draft else []}, role="teacher")[1]
+        second = d(again, "data", "draft")
+        _report("连续生成不会给出同一道题",
+                bool(gen_draft and second and gen_draft["gen_key"] != second["gen_key"]),
+                "两次生成的指纹相同")
+
+        # 生成的题要能真的入库，并且参考程序只对教师可见
+        saved = call("/api/problems", "POST", gen_draft, role="teacher")[1] if gen_draft else {}
+        gen_pid = d(saved, "data", "id")
+        _report("生成的题目可以入库", bool(gen_pid), str(saved)[:140])
+        if gen_pid:
+            check("入库后能看到参考程序（教师）", f"/api/problems/{gen_pid}", role="teacher",
+                  probe=lambda p: bool(p["data"].get("solution")) and bool(p["data"].get("gen_key")))
+            check("学生看不到参考程序与生成指纹", f"/api/problems/{gen_pid}", role="student",
+                  probe=lambda p: not p["data"].get("solution") and not p["data"].get("gen_key"))
+            check("生成题的测试数据已入库", f"/api/problems/{gen_pid}", role="teacher",
+                  probe=lambda p: p["data"]["n_test_cases"] >= 4)
+            check("删除生成的测试题目", f"/api/problems/{gen_pid}", "DELETE", {},
+                  role="teacher", probe=lambda p: p.get("ok"))
 
     # ---------------------------------------------------------- 作业
     section("4. 作业管理")
@@ -666,6 +758,12 @@ def main() -> int:
                 conn.execute("DELETE FROM assignments WHERE course_id=?", (t_cid,))
                 conn.execute("DELETE FROM courses WHERE id=?", (t_cid,))
                 conn.execute("DELETE FROM users WHERE username IN (?,?)", (t_name, s_name))
+                # 批量导入的「审计学生A/B」也要清掉（含历史遗留的孤儿账号，
+                # 否则它们会一直挂在教师端的学生名单里）
+                conn.execute(
+                    "DELETE FROM users WHERE name LIKE '审计学生%' "
+                    "AND id NOT IN (SELECT user_id FROM course_members)"
+                )
                 conn.commit()
                 conn.close()
                 print("     （审计用的临时课程与账号已清理）")
@@ -673,12 +771,22 @@ def main() -> int:
                 print("     清理临时数据失败：", exc)
 
     # ---------------------------------------------------------- 清理
-    if not READONLY and temp_problem:
-        pid_new = d(temp_problem, "data", "id")
+    if not READONLY:
         section("12. 清理测试数据")
-        check("删除测试题目", f"/api/problems/{pid_new}", "DELETE", {},
-              role="teacher", probe=lambda p: p.get("ok"))
-        print(f"     （临时作业 [审计] 作业 {STAMP} 保留；如需彻底清理请重跑 backend/seed.py）")
+        if temp_problem:
+            pid_new = d(temp_problem, "data", "id")
+            check("删除测试题目", f"/api/problems/{pid_new}", "DELETE", {},
+                  role="teacher", probe=lambda p: p.get("ok"))
+        assigns_now = d(call("/api/assignments", role="teacher")[1], "data", default=[])
+        if assigns_now:
+            check("学生无权删除作业", f"/api/assignments/{assigns_now[0]['id']}", "DELETE", {},
+                  role="student", want=403)
+        # 删掉本轮与历史遗留的审计作业，别让演示数据里堆垃圾
+        leftovers = [a for a in assigns_now if str(a.get("title", "")).startswith("[审计]")]
+        removed = sum(1 for a in leftovers
+                      if call(f"/api/assignments/{a['id']}", "DELETE", {}, role="teacher")[0] == 200)
+        _report(f"清理审计临时作业（{removed}/{len(leftovers)} 条）",
+                removed == len(leftovers), "有临时作业未能删除")
 
     # ---------------------------------------------------------- 汇总
     print("\n" + "=" * 72)

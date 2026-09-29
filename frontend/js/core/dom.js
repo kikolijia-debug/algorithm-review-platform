@@ -91,3 +91,11 @@ export function esc(s) {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
 }
+
+/**
+ * 题面里的一点点行内格式：支持 ``**重点**`` 加粗。
+ * 先转义再替换，保证注入不进来（题库里很多题面都用了这种写法）。
+ */
+export function inlineMd(s) {
+  return esc(s).replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>');
+}

@@ -43,6 +43,7 @@ const NAV = {
         { label: '教学看板', path: '/teacher', icon: icon.spark },
         { label: '作业与题库', path: '/teacher/work', icon: icon.book },
         { label: '班级与学生', path: '/teacher/students', icon: icon.users },
+        { label: '课程资源', path: '/materials', icon: icon.doc },
       ],
     },
     {

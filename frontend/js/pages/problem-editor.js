@@ -13,7 +13,9 @@ const TOPIC_POOL = [
 ];
 
 export async function openProblemEditor(problem, onSaved) {
-  const isEdit = !!problem;
+  // 有 id 才是「改题目」；智能出题给的草稿没有 id，按新建处理
+  const isEdit = !!(problem && problem.id);
+  const isDraft = !isEdit && !!(problem && problem.solution);
   const draft = problem
     ? JSON.parse(JSON.stringify(problem))
     : {
@@ -118,6 +120,12 @@ export async function openProblemEditor(problem, onSaved) {
     ),
     h('div', { class: 'mt16' }, U.field('约束与提示', U.textarea({ value: draft.constraints, style: { minHeight: '80px' }, oninput: (e) => (draft.constraints = e.target.value) }))),
     h('section', { class: 'mt24', id: 'editor-programming' }, ...programmingSection()),
+    draft.solution
+      ? h('details', { class: 'mt24' },
+          h('summary', { style: { cursor: 'pointer', fontSize: '13.5px', color: 'var(--brand)', fontWeight: 600 } },
+            '参考程序（生成测试数据时用的就是它）'),
+          h('div', { class: 'mt12' }, U.codeBlock(draft.solution, 'python', { maxHeight: 320 })))
+      : null,
     h('section', { class: 'mt24', id: 'editor-rubric' }, ...rubricSection())
   );
 
@@ -153,7 +161,7 @@ export async function openProblemEditor(problem, onSaved) {
     if (rub) { clear(rub); rubricSection().forEach((n) => rub.appendChild(n)); }
   }
 
-  const m = U.modal(isEdit ? '编辑题目 · ' + draft.title : '新建题目', body, {
+  const m = U.modal(isEdit ? '编辑题目 · ' + draft.title : (isDraft ? '智能出题 · 确认后入库' : '新建题目'), body, {
     width: 900,
     actions: (close) => [
       U.btn('取消', { tone: 'ghost', onClick: close }),

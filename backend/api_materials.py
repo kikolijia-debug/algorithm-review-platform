@@ -210,13 +210,36 @@ def api_material_update(ctx):
     if not row:
         return err(404, "课件不存在")
     b = ctx["body"]
+
+    # 调整同章节内的顺序：与相邻的一份交换 order_index（前端只点「上移 / 下移」）
+    if b.get("move") in ("up", "down"):
+        mid_i = int(mid)
+        same = uid_rows(
+            "SELECT id,order_index FROM materials WHERE course_id=? AND chapter=? "
+            "ORDER BY order_index,id",
+            (row["course_id"], row["chapter"]),
+        )
+        ids = [r["id"] for r in same]
+        if mid_i not in ids:
+            return err(400, "该课件不在本章节的排序中")
+        i = ids.index(mid_i)
+        j = i - 1 if b["move"] == "up" else i + 1
+        if j < 0 or j >= len(ids):
+            return err(400, "已经在" + ("最前" if b["move"] == "up" else "最后") + "了")
+        # 先按当前顺序重排成 0..n-1，再交换相邻两条，避免历史数据里 order_index 相同导致换不动
+        for k, r in enumerate(same):
+            db.ex("UPDATE materials SET order_index=? WHERE id=?", (k, r["id"]))
+        db.ex("UPDATE materials SET order_index=? WHERE id=?", (j, mid))
+        db.ex("UPDATE materials SET order_index=? WHERE id=?", (i, same[j]["id"]))
+        return ok(_material_dict(db.q1("SELECT * FROM materials WHERE id=?", (mid,))))
+
     sets, args = [], []
-    for k in ("title", "summary", "chapter"):
+    for k in ("title", "summary", "chapter", "order_index"):
         if b.get(k) is not None:
             if k == "chapter" and b[k] and b[k] not in CW.CHAPTER_BY_KEY:
                 return err(400, "未知章节：" + b[k])
             sets.append(k + "=?")
-            args.append(b[k])
+            args.append(int(b[k]) if k == "order_index" else b[k])
     if b.get("chapter") is not None:
         meta = CW.CHAPTER_BY_KEY.get(b["chapter"]) or {}
         sets.append("chapter_title=?")
@@ -227,6 +250,57 @@ def api_material_update(ctx):
         return err(400, "没有需要修改的字段")
     args.append(mid)
     db.ex("UPDATE materials SET " + ",".join(sets) + " WHERE id=?", args)
+    return ok(_material_dict(db.q1("SELECT * FROM materials WHERE id=?", (mid,))))
+
+
+@route("POST", "/api/materials/{id}/file", "teacher")
+def api_material_replace(ctx):
+    """替换课件文件（保留标题、章节与顺序），旧文件从磁盘移除。"""
+    mid = ctx["params"]["id"]
+    row = db.q1("SELECT * FROM materials WHERE id=?", (mid,))
+    if not row:
+        return err(404, "课件不存在")
+    b = ctx["body"]
+    content_b64 = b.get("content") or ""
+    if not content_b64:
+        return err(400, "请选择要替换成的文件")
+    if content_b64.strip().startswith("data:"):
+        content_b64 = content_b64.split(",", 1)[1]
+    try:
+        blob = base64.b64decode(content_b64, validate=True)
+    except (binascii.Error, ValueError):
+        return err(400, "文件内容不是合法的 base64")
+    if len(blob) > MAX_UPLOAD_BYTES:
+        return err(413, "课件超过 %d MB 上限" % (MAX_UPLOAD_BYTES // 1048576))
+
+    filename = b.get("filename") or row["filename"]
+    ext = os.path.splitext(filename)[1].lower()
+    if ext not in (".pdf", ".pptx", ".ppt", ".doc", ".docx", ".zip", ".md", ".txt"):
+        return err(400, "只支持 pdf / ppt(x) / doc(x) / zip / md / txt")
+    slug = _safe_slug(filename)
+    final = slug + ext
+    n = 2
+    while os.path.exists(os.path.join(UPLOAD_DIR, final)):
+        final = f"{slug}-{n}{ext}"
+        n += 1
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
+    with open(os.path.join(UPLOAD_DIR, final), "wb") as fh:
+        fh.write(blob)
+
+    old = row["filename"]
+    db.ex(
+        "UPDATE materials SET filename=?,url=?,size_bytes=?,sha256='' WHERE id=?",
+        (final, "/courseware/" + final, len(blob), mid),
+    )
+    # 旧文件没人再引用时才删除，避免共享文件被误删
+    if old and old != final:
+        still = db.q1("SELECT id FROM materials WHERE filename=? LIMIT 1", (old,))
+        full = os.path.abspath(os.path.join(UPLOAD_DIR, os.path.basename(old)))
+        if not still and full.startswith(os.path.abspath(UPLOAD_DIR)) and os.path.exists(full):
+            try:
+                os.remove(full)
+            except OSError:
+                pass
     return ok(_material_dict(db.q1("SELECT * FROM materials WHERE id=?", (mid,))))
 
 
