@@ -207,6 +207,53 @@ function topbar() {
   );
 }
 
+/**
+ * 「我的资料」：教师 / 助教填写的公开资料，会出现在学生端「我的班级 → 任课教师」里，
+ * 学生点开老师就能看到职称、单位、简介和个人主页。
+ */
+function openMyProfile() {
+  const u = state.user || {};
+  const titleInput = U.input({ value: u.title || '', placeholder: '例如：副研究员 · 博士生导师' });
+  const orgInput = U.input({ value: u.org || '', placeholder: '例如：华中科技大学 网络空间安全学院' });
+  const bioInput = U.textarea({
+    value: u.bio || '', style: { minHeight: '160px' },
+    placeholder: '写一段自我介绍：研究方向、讲授课程、答疑方式等，学生点开就能看到。',
+  });
+  const homeInput = U.input({ value: u.homepage || '', placeholder: 'https://（选填）' });
+  U.modal('我的资料', h('div', {},
+    U.note('这里的资料会展示给学生：学生端「我的班级 → 任课教师」里点开你的名字即可看到。', 'info'),
+    h('div', { class: 'col mt16', style: { gap: '14px' } },
+      U.field('职称 / 头衔', titleInput),
+      U.field('所在单位', orgInput),
+      U.field('个人简介', bioInput, { hint: '支持换行，建议 2~6 行' }),
+      U.field('个人主页', homeInput))
+  ), {
+    width: 620,
+    actions: (close) => [
+      U.btn('取消', { tone: 'ghost', onClick: close }),
+      U.btn('保存', {
+        tone: 'primary',
+        onClick: async () => {
+          try {
+            const saved = await api.put('/api/auth/profile', {
+              title: titleInput.value.trim(),
+              org: orgInput.value.trim(),
+              bio: bioInput.value.trim(),
+              homepage: homeInput.value.trim(),
+            });
+            Object.assign(state.user, saved || {});
+            save();
+            toast('资料已保存');
+            close();
+          } catch (err) {
+            toast(err.message);
+          }
+        },
+      }),
+    ],
+  });
+}
+
 function openUserMenu(e) {
   e.stopPropagation();
   const menu = h(
@@ -227,6 +274,11 @@ function openUserMenu(e) {
       style: { marginTop: '6px' },
       onclick: () => { menu.remove(); router.navigate(isTeacher() ? '/teacher' : '/student'); },
     }, isTeacher() ? '教学看板' : '我的工作台'),
+    h('button', {
+      class: 'btn btn--ghost btn--block',
+      style: { marginTop: '6px' },
+      onclick: () => { menu.remove(); openMyProfile(); },
+    }, '我的资料'),
     h('button', { class: 'btn btn--ghost btn--block', style: { marginTop: '6px' }, onclick: () => { menu.remove(); router.navigate('/'); } }, '返回首页'),
     h('button', {
       class: 'btn btn--danger btn--block',

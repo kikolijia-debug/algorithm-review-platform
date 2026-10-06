@@ -35,6 +35,39 @@ CACHE_PATH = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "data", "template_verdicts.json"
 )
 
+#: 教师 / 助教的公开资料：学生端「我的班级 → 任课教师」点开就能看到。
+#: 张乾坤老师的信息取自华中科技大学网络空间安全学院官网师资页与教师个人主页
+#: （faculty.hust.edu.cn/zhangqiankun），只保留可公开核实的部分。
+TEACHER_PROFILES = {
+    "teacher": {
+        "title": "副研究员 · 博士生导师",
+        "org": "华中科技大学 网络空间安全学院",
+        "bio": (
+            "张乾坤，华中科技大学网络空间安全学院副研究员、博士生导师、院长助理，"
+            "密码科学与技术系。入选国家网信高层次人才、湖北省海外高层次人才、"
+            "武汉英才（优秀青年人才）、华为东湖青年学者、CCF-滴滴盖亚学者。\n"
+            "2017 年本科毕业于浙江大学竺可桢学院混合班，2021 年于香港大学计算机科学系"
+            "获博士学位（获香港大学研究生奖学金 UPF 等资助）。\n"
+            "主要研究方向：（1）理论计算机科学——具有可证明性能保证的算法设计与分析；"
+            "（2）可信人工智能——模型与技术的安全性、公平性、鲁棒性。\n"
+            "以第一/通讯作者在 STOC、FOCS、SICOMP、CCS、ICML 等 CCF A 类会议与期刊"
+            "发表论文十余篇，获 IEEE TrustCom 2025 最佳论文奖等；主持国家自然科学基金、"
+            "CCF-华为胡杨林基金、CCF-滴滴盖亚学者基金（连续两次入选）等十余项项目。\n"
+            "任教课程：《算法设计与分析》。"
+        ),
+        "homepage": "https://qiankuntcs.github.io/",
+    },
+    "ta": {
+        "title": "助教 · 硕士研究生",
+        "org": "华中科技大学 网络空间安全学院",
+        "bio": (
+            "担任《算法设计与分析》课程助教：负责编程题测试数据维护、互评答疑与作业复核。"
+            "有问题可以在课程通知里留言，或在课堂上找助教答疑。"
+        ),
+        "homepage": "",
+    },
+}
+
 #: 编程题默认的代码互评评分细则（与 backend/api.py 中的保持同一套维度）
 CODE_RUBRIC = [
     {"key": "correctness", "name": "正确性", "max": 35,
@@ -142,6 +175,18 @@ class Seeder:
             [tuple(r) + (now,) for r in rows],
         )
         conn.commit()
+        users = db.rows2dicts(db.q("SELECT * FROM users ORDER BY id"))
+        teacher = next(u for u in users if u["role"] == "teacher")
+        ta = next(u for u in users if u["role"] == "ta")
+
+        # 教师/助教的公开资料（学生端「我的班级」点开就能看到）
+        for user in (teacher, ta):
+            prof = TEACHER_PROFILES.get(user["username"])
+            if prof:
+                db.ex(
+                    "UPDATE users SET title=?,org=?,bio=?,homepage=? WHERE id=?",
+                    (prof["title"], prof["org"], prof["bio"], prof["homepage"], user["id"]),
+                )
         users = db.rows2dicts(db.q("SELECT * FROM users ORDER BY id"))
         teacher = next(u for u in users if u["role"] == "teacher")
         ta = next(u for u in users if u["role"] == "ta")

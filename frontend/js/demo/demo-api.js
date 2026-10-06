@@ -1111,18 +1111,24 @@ function myClass() {
     id: i + 1, name, member_count: count, is_mine: !!mine && name === mine,
     invite_code: null, description: '',
   }));
-  const classmates = mine
-    ? students.filter((s) => (s.class_name || '未分班') === mine).map((s) => ({
-        id: s.id, name: s.name, student_no: s.student_no, is_me: session && s.id === session.id,
-      }))
-    : [];
+  const rosterOf = (name) => students
+    .filter((s) => (s.class_name || '未分班') === name)
+    .map((s) => ({
+      id: s.id, name: s.name, student_no: s.student_no, is_me: session && s.id === session.id,
+    }));
+  const rosters = {};
+  classes.forEach((c) => { rosters[String(c.id)] = rosterOf(c.name); });
+  const classmates = mine ? (rosters[String((classes.find((c) => c.is_mine) || {}).id)] || []) : [];
   return {
     course: DS.course,
     my_class: classes.find((c) => c.is_mine) || null,
     classes,
     classmates,
+    rosters,
+    unassigned: [],
     teachers: (DS.teachers || []).map((t) => ({
       id: t.id, name: t.name, email: t.email, role: t.role,
+      title: t.title, org: t.org, bio: t.bio, homepage: t.homepage,
     })),
     total_students: students.length,
     is_student: !!(session && session.role === 'student'),

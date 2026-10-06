@@ -150,8 +150,8 @@ def api_unassigned(ctx):
 def api_my_class(ctx):
     """「我的班级」：学生看自己所在的班级、任课教师与同班同学。
 
-    只返回**本班**名单，其它班级只给人数——既满足「能认识同班同学」的诉求，
-    也不把全课程的学生名单摊开。
+    返回课程里每个班的名单（``rosters``，键为班级 id），前端点班级名就能切换查看；
+    别的班级不会给出邀请码。未分班的学生放在 ``unassigned``。
     """
     cid = _first_course(ctx)
     course = db.q1("SELECT id,name,code,term,description,invite_code FROM courses WHERE id=?",
@@ -160,6 +160,8 @@ def api_my_class(ctx):
     classmates = []
     teachers = []
     my_class = None
+    rosters: dict = {}
+    loose: list = []
     if cid:
         me = ctx["user"]
         row = db.q1(
@@ -179,20 +181,36 @@ def api_my_class(ctx):
                 c["invite_code"] = None      # 别的班级的邀请码不给看
             classes.append(c)
         teachers = uid_rows(
-            "SELECT u.id,u.name,u.email,u.role FROM course_members m JOIN users u ON u.id=m.user_id "
+            "SELECT u.id,u.name,u.email,u.role,u.title,u.org,u.bio,u.homepage "
+            "FROM course_members m JOIN users u ON u.id=m.user_id "
             "WHERE m.course_id=? AND m.role<>'student' ORDER BY (u.role='teacher') DESC, u.id",
             (cid,),
         )
-        if my_class_id and me["role"] == "student":
-            classmates = uid_rows(
+        # 每个班的名单都带上，前端点班级名就能切换查看（邀请码仍然只给自己的班）
+        for c in classes:
+            roster = uid_rows(
                 "SELECT u.id,u.name,u.student_no FROM course_members m "
                 "JOIN users u ON u.id=m.user_id "
                 "WHERE m.course_id=? AND m.role='student' AND m.class_id=? "
                 "ORDER BY u.student_no,u.id",
-                (cid, my_class_id),
+                (cid, c["id"]),
             )
-            for s in classmates:
+            for s in roster:
                 s["is_me"] = s["id"] == me["id"]
+            rosters[str(c["id"])] = roster
+            if my_class_id and c["id"] == my_class_id:
+                classmates = roster
+        # 没有分班的学生也列出来，避免「人不见了」
+        loose = uid_rows(
+            "SELECT u.id,u.name,u.student_no FROM course_members m JOIN users u ON u.id=m.user_id "
+            "WHERE m.course_id=? AND m.role='student' AND (m.class_id IS NULL OR m.class_id=0) "
+            "ORDER BY u.student_no,u.id",
+            (cid,),
+        )
+        if loose:
+            for s in loose:
+                s["is_me"] = s["id"] == me["id"]
+            rosters["0"] = loose
     total_students = db.q1(
         "SELECT COUNT(*) c FROM course_members WHERE course_id=? AND role='student'", (cid,)
     )["c"] if cid else 0
@@ -201,6 +219,8 @@ def api_my_class(ctx):
         "my_class": my_class,
         "classes": classes,
         "classmates": classmates,
+        "rosters": rosters,
+        "unassigned": loose,
         "teachers": teachers,
         "total_students": total_students,
         "is_student": ctx["user"]["role"] == "student",

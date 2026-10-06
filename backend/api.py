@@ -83,6 +83,11 @@ def public_user(u):
         "id": u["id"], "username": u["username"], "name": u["name"], "role": u["role"],
         "email": u["email"], "student_no": u["student_no"], "class_name": u["class_name"],
         "avatar": u["avatar"],
+        # 教师/助教的公开资料（学生端「我的班级」点开就能看）
+        "title": u["title"] if "title" in u.keys() else None,
+        "org": u["org"] if "org" in u.keys() else None,
+        "bio": u["bio"] if "bio" in u.keys() else None,
+        "homepage": u["homepage"] if "homepage" in u.keys() else None,
     }
 
 
@@ -285,6 +290,25 @@ def api_me(ctx):
         "user": public_user(dict(u)), "courses": courses, "peer_pending": peer_pending,
         "notice_latest": notice_latest,
     })
+
+
+@route("PUT", "/api/auth/profile")
+def api_update_profile(ctx):
+    """更新自己的公开资料（职称 / 单位 / 简介 / 个人主页）。
+
+    教师和助教会出现在学生端「我的班级 → 任课教师」里，学生点开看到的就是这里填的内容。
+    """
+    b = ctx["body"]
+    sets, args = [], []
+    for k in ("title", "org", "bio", "homepage"):
+        if b.get(k) is not None:
+            sets.append(k + "=?")
+            args.append(str(b[k]).strip()[:4000])
+    if not sets:
+        return err(400, "没有需要更新的内容")
+    args.append(ctx["user"]["id"])
+    db.ex("UPDATE users SET " + ",".join(sets) + " WHERE id=?", args)
+    return ok(public_user(dict(db.q1("SELECT * FROM users WHERE id=?", (ctx["user"]["id"],)))))
 
 
 # ---------------------------------------------------------------------------

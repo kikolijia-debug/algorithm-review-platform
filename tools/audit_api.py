@@ -381,6 +381,13 @@ def main() -> int:
           and all(c.get("invite_code") is None for c in p["data"].get("classes", [])
                   if not c.get("is_mine")))
     check("「我的班级」（教师也能看）", "/api/my/class", role="teacher")
+    check("「我的班级」带教师公开资料（职称 / 简介 / 主页）", "/api/my/class", role="student",
+          probe=lambda p: all("title" in t and "bio" in t and "homepage" in t
+                              for t in p["data"].get("teachers", []))
+          and any((t.get("bio") or "") for t in p["data"].get("teachers", [])))
+    check("「我的班级」每个班都有名单（可切换查看）", "/api/my/class", role="student",
+          probe=lambda p: len(p["data"].get("rosters", {})) == len(p["data"].get("classes", []))
+          and all(len(v) > 0 for v in p["data"].get("rosters", {}).values()))
 
     if not READONLY and cls_list:
         base_cls = max(cls_list, key=lambda c: c["member_count"])
@@ -686,6 +693,20 @@ def main() -> int:
           probe=lambda p: d(p, "data", "stats") is not None)
     check("学生看板", "/api/dashboard/student", role="student",
           probe=lambda p: d(p, "data", "stats") is not None)
+    # 学生也能维护自己的资料，但接口只会改到调用者自己（学生资料不对外展示）
+    stu_me = d(call("/api/auth/me", role="student")[1], "data", "user", default={})
+    check("学生维护自己的资料（接口只改调用者自己）", "/api/auth/profile", "PUT",
+          {"title": stu_me.get("title") or "", "org": stu_me.get("org") or "",
+           "bio": stu_me.get("bio") or "", "homepage": stu_me.get("homepage") or ""},
+          role="student", want=200,
+          probe=lambda p: p.get("data", {}).get("username") == "stu1")
+    # 教师资料由老师自己维护：这里把原内容原样写回，验证接口可用且不改动数据
+    prof = d(call("/api/auth/me", role="teacher")[1], "data", "user", default={})
+    check("更新我的资料（职称 / 单位 / 简介 / 主页）", "/api/auth/profile", "PUT",
+          {"title": prof.get("title") or "", "org": prof.get("org") or "",
+           "bio": prof.get("bio") or "", "homepage": prof.get("homepage") or ""},
+          role="teacher",
+          probe=lambda p: p.get("data", {}).get("org") == (prof.get("org") or ""))
 
     # ---------------------------------------------------------- 注册与课程归属
     if not READONLY:

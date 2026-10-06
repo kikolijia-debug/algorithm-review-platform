@@ -38,6 +38,10 @@ CREATE TABLE IF NOT EXISTS users (
     student_no  TEXT,
     class_name  TEXT,
     avatar      TEXT,
+    title       TEXT,                       -- 职称 / 头衔（教师、助教的公开资料）
+    org         TEXT,                       -- 所在单位
+    bio         TEXT,                       -- 个人简介（学生端「我的班级」可展开查看）
+    homepage    TEXT,                       -- 个人主页
     created_at  TEXT NOT NULL,
     last_login  TEXT
 );
@@ -390,6 +394,13 @@ def migrate(conn: sqlite3.Connection) -> None:
     for col, ddl in (("kind", "TEXT DEFAULT 'notice'"), ("assignment_id", "INTEGER")):
         if col not in notice_cols:
             conn.execute(f"ALTER TABLE notices ADD COLUMN {col} {ddl}")
+    conn.commit()
+
+    # 6. 教师/助教的公开资料：职称、单位、简介、个人主页
+    user_cols = [r["name"] for r in conn.execute("PRAGMA table_info(users)")]
+    for col in ("title", "org", "bio", "homepage"):
+        if col not in user_cols:
+            conn.execute(f"ALTER TABLE users ADD COLUMN {col} TEXT")
     conn.commit()
 
     # 仅在 classes 表为空时反向补齐，避免覆盖教师后来手工调整的结果

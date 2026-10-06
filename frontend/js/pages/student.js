@@ -667,6 +667,30 @@ function reviewData(task) {
 
 /* ======================================================== 我的班级 */
 
+/** 点开老师，看他的公开资料（职称、单位、简介、主页） */
+export function openTeacherProfile(t) {
+  return U.drawer(t.name + ' · 教师资料', h('div', {},
+    h('div', { class: 'row', style: { gap: '14px', alignItems: 'center' } },
+      U.avatar({ name: t.name }, 56),
+      h('div', {},
+        h('div', { class: 'row', style: { gap: '8px' } },
+          h('b', { style: { fontSize: '17px' } }, t.name),
+          U.badge(t.role === 'teacher' ? '教师' : '助教', t.role === 'teacher' ? 'brand' : 'soft')),
+        t.title ? h('div', { class: 'small muted', style: { marginTop: '4px' } }, t.title) : null,
+        t.org ? h('div', { class: 'small muted' }, t.org) : null)),
+    t.bio
+      ? h('div', { class: 'conclusion mt16', style: { lineHeight: '1.95', whiteSpace: 'pre-wrap' } }, t.bio)
+      : U.note('这位老师还没有填写个人简介。', 'info'),
+    h('div', { class: 'mt16' }, U.kv([
+      ['邮箱', t.email || '—'],
+      ['单位', t.org || '—'],
+      ['职称', t.title || '—'],
+      ['个人主页', t.homepage
+        ? h('a', { href: t.homepage, target: '_blank', rel: 'noopener' }, t.homepage)
+        : '—'],
+    ]))), { width: 580 });
+}
+
 export async function loadMyClass() {
   return api.get('/api/my/class');
 }
@@ -674,11 +698,11 @@ export async function loadMyClass() {
 export function renderMyClass(data) {
   const course = data.course || {};
   const cls = data.my_class;
-  const mates = data.classmates || [];
-  const teachers = data.teachers || [];
   const classes = data.classes || [];
+  const rosters = data.rosters || {};
+  const loose = data.unassigned || [];
+  const teachers = data.teachers || [];
   const others = classes.filter((c) => !c.is_mine);
-
   const head = U.pageHeader('我的班级', {
     eyebrow: 'MY CLASS',
     sub: course.name
@@ -692,63 +716,114 @@ export function renderMyClass(data) {
       h('a', { class: 'btn btn--primary', href: '#/student' }, '去加入课程')));
   }
 
-  const rosterCard = U.card(
-    U.cardHead(cls ? cls.name : '同学名单', {
-      sub: cls
-        ? `共 ${mates.length} 人${cls.invite_code ? ' · 班级邀请码 ' + cls.invite_code : ''}`
-        : '你还没有被分到班级',
-      actions: cls
-        ? U.badge(`课程共 ${data.total_students} 名学生`, 'soft')
-        : null,
-    }),
-    mates.length
-      ? h('div', { class: 'roster' }, ...mates.map((s, i) =>
-          h('div', { class: ['roster__item', s.is_me ? 'is-me' : ''] },
-            h('span', { class: 'roster__no' }, String(i + 1)),
-            U.avatar({ name: s.name }, 30),
-            h('div', { class: 'roster__main' },
-              h('b', {}, s.name),
-              s.is_me ? h('span', { class: 'badge badge--brand' }, '我') : null),
-            h('span', { class: 'roster__meta' }, s.student_no || '未填学号'))))
-      : U.empty('暂时看不到同学名单',
-          '还没有被分到班级，请把课程 / 班级邀请码填给老师，或用老师发的班级邀请码加入。')
-  );
+  // 可以查看的班级：我的班级排最前，其余按名字，最后是未分班
+  const entries = [];
+  if (cls) entries.push({ id: String(cls.id), name: cls.name, is_mine: true, code: cls.invite_code });
+  others.forEach((c) => entries.push({ id: String(c.id), name: c.name, is_mine: false }));
+  if (loose.length) entries.push({ id: '0', name: '未分班', is_mine: false });
+  let active = entries.length ? entries[0].id : '0';
+
+  const rosterBox = h('div', { class: 'col', style: { gap: '14px' } });
+
+  const paintRoster = () => {
+    clear(rosterBox);
+    const meta = entries.find((e) => e.id === active) || { name: '同学名单' };
+    const list = rosters[active] || [];
+    rosterBox.appendChild(
+      h('div', { class: 'row between row--wrap', style: { gap: '8px', alignItems: 'center' } },
+        h('div', {}, h('b', {}, meta.name),
+          h('span', { class: 'small muted', style: { marginLeft: '8px' } },
+            `${list.length} 人${meta.is_mine ? ' · 这是你所在的班级' : ''}`)),
+        meta.is_mine && meta.code
+          ? h('span', { class: 'badge badge--soft' }, '班级邀请码 ' + meta.code)
+          : null)
+    );
+    if (!list.length) {
+      rosterBox.appendChild(U.empty('这个班还没有名单', '等老师把学生分到班级后就能看到。'));
+      return;
+    }
+    rosterBox.appendChild(
+      h('div', { class: 'roster' }, ...list.map((s, i) =>
+        h('div', { class: ['roster__item', s.is_me ? 'is-me' : ''] },
+          h('span', { class: 'roster__no' }, String(i + 1)),
+          U.avatar({ name: s.name }, 30),
+          h('div', { class: 'roster__main' },
+            h('b', {}, s.name),
+            s.is_me ? h('span', { class: 'badge badge--brand' }, '我') : null),
+          h('span', { class: 'roster__meta' }, s.student_no || '未填学号'))))
+    );
+  };
 
   const teacherCard = U.card(
-    U.cardHead('任课教师', { sub: '课程内的教师与助教' }),
+    U.cardHead('任课教师', { sub: '点一下可以看老师的资料与研究方向' }),
     teachers.length
       ? h('div', { class: 'col', style: { gap: '10px' } }, ...teachers.map((t) =>
-          h('div', { class: 'list-row' },
+          h('button', {
+            class: 'list-row is-clickable',
+            style: { textAlign: 'left', width: '100%' },
+            onclick: () => openTeacherProfile(t),
+          },
             U.avatar({ name: t.name }, 34),
             h('div', { class: 'list-row__main' },
               h('div', { class: 'list-row__title' }, h('b', {}, t.name),
-                U.badge(t.role === 'teacher' ? '教师' : '助教', t.role === 'teacher' ? 'brand' : 'soft')),
-              h('div', { class: 'list-row__meta' }, h('span', {}, t.email || '未填邮箱'))))))
+                U.badge(t.role === 'teacher' ? '教师' : '助教', t.role === 'teacher' ? 'brand' : 'soft'),
+                t.title ? h('span', { class: 'small muted' }, t.title) : null),
+              h('div', { class: 'list-row__meta' },
+                h('span', {}, t.email || '未填邮箱'),
+                t.org ? h('span', {}, t.org) : null)),
+            h('span', { class: 'muted', html: U.icon.arrow }))))
       : U.empty('暂无教师信息', '')
   );
+
+  const box = h('div', { class: 'col', style: { gap: '16px' } });
+  const paint = () => {
+    clear(box);
+    paintRoster();
+    const rosterCard = U.card(
+      U.cardHead('班级名单', {
+        sub: entries.length > 1 ? '点班级名可以切换查看' : '本课程只有一个班级',
+        actions: U.badge(`课程共 ${data.total_students} 名学生`, 'soft'),
+      }),
+      entries.length > 1
+        ? U.segmented(
+            entries.map((e) => ({ key: e.id, label: e.is_mine ? '我的班级 · ' + e.name : e.name })),
+            { value: active, onChange: (k) => { active = k; paint(); } }
+          )
+        : null,
+      h('div', { class: 'mt12' }, rosterBox)
+    );
+    box.appendChild(rosterCard);
+    box.appendChild(
+      h('div', { class: 'grid grid--side' },
+        h('div', { class: 'col', style: { gap: '16px' } },
+          others.length
+            ? U.card(
+                U.cardHead('课程里的其它班级', { sub: '点一下就能看这个班的名单' }),
+                h('div', { class: 'col', style: { gap: '8px' } }, ...others.map((c) =>
+                  h('button', {
+                    class: 'list-row is-clickable', style: { textAlign: 'left', width: '100%' },
+                    onclick: () => { active = String(c.id); paint(); window.scrollTo({ top: 0, behavior: 'smooth' }); },
+                  },
+                    h('div', { class: 'list-row__main' }, h('div', { class: 'list-row__title' }, c.name)),
+                    U.badge(c.member_count + ' 人', 'soft'),
+                    h('span', { class: 'muted', html: U.icon.arrow })))))
+            : U.empty('课程里只有一个班级', '')),
+        h('div', { class: 'col', style: { gap: '16px' } }, teacherCard))
+    );
+  };
+  paint();
 
   return h(
     'div',
     {},
     head,
     h('div', { class: 'stat-row mb16' },
-      U.stat(cls ? mates.length : 0, '本班人数', { tone: 'brand' }),
+      U.stat(cls ? (rosters[String(cls.id)] || []).length : 0, '本班人数', { tone: 'brand' }),
       U.stat(data.total_students || 0, '课程学生总数', { tone: 'blue' }),
       U.stat(classes.length || 0, '班级数', { tone: 'ok' }),
       U.stat(teachers.length || 0, '教师与助教', { tone: 'warn' })),
-    h('div', { class: 'grid grid--side' },
-      h('div', { class: 'col', style: { gap: '16px' } }, rosterCard),
-      h('div', { class: 'col', style: { gap: '16px' } },
-        teacherCard,
-        others.length
-          ? U.card(
-              U.cardHead('课程里的其它班级', { sub: '只显示班级与人名数量' }),
-              h('div', { class: 'col', style: { gap: '8px' } }, ...others.map((c) =>
-                h('div', { class: 'list-row' },
-                  h('div', { class: 'list-row__main' }, h('div', { class: 'list-row__title' }, c.name)),
-                  U.badge(c.member_count + ' 人', 'soft')))))
-          : null)
-  ));
+    box
+  );
 }
 
 /* ======================================================== 全部通知 */

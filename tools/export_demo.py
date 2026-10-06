@@ -28,7 +28,9 @@ def rows(sql, args=()):
 def build() -> dict:
     course = db.q1("SELECT * FROM courses ORDER BY id LIMIT 1")
     cid = course["id"]
-    teachers = rows("SELECT id,name,email,role,class_name,student_no FROM users WHERE role<>'student'")
+    teachers = rows(
+        "SELECT id,name,email,role,class_name,student_no,title,org,bio,homepage "
+        "FROM users WHERE role<>'student'")
     students = rows(
         "SELECT u.id,u.name,u.student_no,u.class_name,u.username FROM course_members m "
         "JOIN users u ON u.id=m.user_id WHERE m.course_id=? AND m.role='student' ORDER BY u.id",
