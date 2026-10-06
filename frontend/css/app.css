@@ -404,6 +404,7 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
 .badge--danger { background: var(--danger-soft); color: #a83f2f; }
 .badge--blue { background: var(--blue-soft); color: #2f6ea8; }
 .badge--neutral { background: var(--surface-3); color: var(--muted); }
+.badge--soft { background: var(--brand-soft); color: var(--brand); }
 :root[data-theme="dark"] .badge--ok, :root[data-theme="dark"] .badge--brand { color: #5fdcaa; }
 :root[data-theme="dark"] .badge--warn { color: #e3b45f; }
 :root[data-theme="dark"] .badge--danger { color: #e58e7f; }
@@ -741,6 +742,18 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
   background: var(--surface-2); border: 1px solid var(--line);
 }
 .review-data .stat-row { margin-bottom: 0; }
+
+/* 我的班级：同班同学名单 */
+.roster { display: grid; grid-template-columns: repeat(auto-fill, minmax(215px, 1fr)); gap: 10px; }
+.roster__item {
+  display: flex; align-items: center; gap: 10px; padding: 9px 12px;
+  border-radius: 10px; background: var(--surface-2); border: 1px solid var(--line);
+}
+.roster__item.is-me { border-color: var(--brand); background: rgba(47, 189, 133, 0.1); }
+.roster__no { flex: none; width: 20px; text-align: right; font-size: 11.5px; color: var(--muted); }
+.roster__main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; }
+.roster__main b { font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.roster__meta { flex: none; font-size: 11.5px; color: var(--muted); }
 @media (max-width: 860px) {
   /* 窄屏下按钮排到标题下方，避免把标题挤成一条线 */
   .list-row { flex-wrap: wrap; }

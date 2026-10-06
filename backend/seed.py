@@ -893,6 +893,30 @@ class Seeder:
                  ids["teacher"]["id"], db.days_ago(5, 9, 0)),
             ],
         )
+        # 已发布的作业各自补一条「新作业」通知，和教师真的发布作业时的行为一致
+        rows = db.q(
+            "SELECT a.id,a.title,a.due_at,a.peer_review,a.created_at,"
+            "(SELECT COUNT(*) FROM assignment_problems ap WHERE ap.assignment_id=a.id) n "
+            "FROM assignments a WHERE a.course_id=? AND a.status='published' ORDER BY a.id",
+            (ids["course_id"],),
+        )
+        db.exmany(
+            "INSERT INTO notices(course_id,title,content,author_id,kind,assignment_id,created_at) "
+            "VALUES(?,?,?,?,?,?,?)",
+            [
+                (
+                    ids["course_id"], "新作业：" + (r["title"] or ""),
+                    " · ".join(
+                        [f"共 {r['n']} 道题"]
+                        + ([f"截止 {str(r['due_at'])[:16]}"] if r["due_at"] else [])
+                        + (["含匿名互评"] if r["peer_review"] else [])
+                    ),
+                    ids["teacher"]["id"], "assignment", r["id"],
+                    r["created_at"] or db.now(),
+                )
+                for r in rows
+            ],
+        )
         # 标记「当前数据是系统生成的演示数据」，前端会在顶栏显示提示。
         # 当教师导入自己班级的真实名单后，可删除这条记录（见 docs/使用手册.md）。
         db.ex(

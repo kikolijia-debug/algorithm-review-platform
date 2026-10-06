@@ -26,9 +26,10 @@ const NAV = {
     {
       group: '工作区',
       items: [
-        { label: '学习动态', path: '/student', icon: icon.spark },
+        { label: '学习动态', path: '/student', icon: icon.spark, badge: 'noticeUnread' },
         { label: '题库与作业', path: '/problems', icon: icon.book },
         { label: '课程资源', path: '/materials', icon: icon.doc },
+        { label: '我的班级', path: '/student/class', icon: icon.users },
         { label: '我的提交', path: '/student/submissions', icon: icon.code },
         { label: '互评中心', path: '/student/reviews', icon: icon.users, badge: 'peerPending' },
         { label: '我的主观题', path: '/student/subjective', icon: icon.check },
@@ -124,6 +125,8 @@ function topbar() {
     '/student/reviews': ['学习动态', '互评中心'],
     '/student/subjective': ['学习动态', '我的主观题'],
     '/student/report': ['学习动态', '学习报告'],
+    '/student/class': ['学习动态', '我的班级'],
+    '/student/notices': ['学习动态', '全部通知'],
     '/student/assignment': ['学习动态', '作业详情'],
     '/teacher': ['教学看板'],
     '/teacher/work': ['教学', '作业与题库'],
@@ -368,6 +371,14 @@ export async function refreshBadges() {
     if (!state.token) return;
     const me = await api.get('/api/auth/me');
     state.peerPending = me.peer_pending || 0;
+    // 通知未读：前端记住上次看到的最大通知 id（存在本机），比它新就算有未读
+    if (!isTeacher()) {
+      let seen = 0;
+      try {
+        seen = Number(localStorage.getItem('ajp.noticeSeen.' + (state.user && state.user.id)) || 0);
+      } catch (e) { /* 隐私模式下拿不到 localStorage */ }
+      state.noticeUnread = (me.notice_latest || 0) > seen ? 1 : 0;
+    }
     if (isTeacher()) {
       const an = await api.get('/api/anomalies', { status: 'open' });
       state.openAnomalies = (an.counts && an.counts.open) || 0;
@@ -441,6 +452,8 @@ function registerRoutes() {
   P('/student/reviews/:id', S.loadReviewTask, S.renderReviewTask);
   P('/student/subjective', S.loadSubjective, S.renderSubjective);
   P('/student/report', S.loadReport, S.renderReport);
+  P('/student/class', S.loadMyClass, S.renderMyClass);
+  P('/student/notices', S.loadNotices, S.renderNotices);
   P('/student/assignment/:id', S.loadStudentAssignment, S.renderStudentAssignment);
 
   // 共用

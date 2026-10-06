@@ -13,6 +13,15 @@ import { openProblemEditor } from './problem-editor.js';
 
 const uid = () => state.user.id;
 
+/** 记住「通知我看到这里了」，用于左侧小红点（存在浏览器本机） */
+function markNoticesSeen(latestId) {
+  try {
+    if (state.user && latestId) localStorage.setItem('ajp.noticeSeen.' + state.user.id, String(latestId));
+  } catch (e) {
+    /* 隐私模式下拿不到 localStorage，忽略即可 */
+  }
+}
+
 /* ==================================================== 学习动态（工作台） */
 
 export async function loadDashboard() {
@@ -21,6 +30,8 @@ export async function loadDashboard() {
     api.get('/api/analytics/knowledge').catch(() => ({ mastery: {}, per_user: {} })),
     api.get(`/api/analytics/student/${uid()}`).catch(() => null),
   ]);
+  // 打开工作台就算「看过通知了」，左侧小红点随之消失
+  markNoticesSeen(Math.max(0, ...(dash.notices || []).map((n) => n.id || 0)));
   return { dash, knowledge, report };
 }
 
@@ -203,18 +214,25 @@ export function renderDashboard({ dash, knowledge, report }) {
   );
 
   const notices = U.card(
-    U.cardHead('课程通知', { sub: '来自教师的最新消息' }),
+    U.cardHead('课程通知', {
+      sub: '发布作业与教师消息都在这里',
+      actions: h('a', { class: 'btn btn--ghost btn--sm', href: '#/student/notices' }, '全部通知'),
+    }),
     (dash.notices || []).length
       ? h(
           'div',
           {},
           ...dash.notices.map((n) =>
             h('div', { class: 'mini-row' },
+              U.badge(n.kind === 'assignment' ? '作业' : '通知', n.kind === 'assignment' ? 'brand' : 'soft'),
               h('span', { class: 'grow' }, h('b', {}, n.title), h('div', { class: 'small muted' }, n.content)),
+              n.assignment_id
+                ? h('a', { class: 'btn btn--plain btn--xs', href: `#/student/assignment/${n.assignment_id}` }, '查看')
+                : null,
               h('span', { class: 'mini-row__time' }, U.timeAgo(n.created_at)))
           )
         )
-      : U.empty('暂无通知', '')
+      : U.empty('暂无通知', '教师布置作业或发通知后会出现在这里。')
   );
 
   return h(
@@ -644,6 +662,125 @@ function reviewData(task) {
           )
         )
       : null
+  );
+}
+
+/* ======================================================== 我的班级 */
+
+export async function loadMyClass() {
+  return api.get('/api/my/class');
+}
+
+export function renderMyClass(data) {
+  const course = data.course || {};
+  const cls = data.my_class;
+  const mates = data.classmates || [];
+  const teachers = data.teachers || [];
+  const classes = data.classes || [];
+  const others = classes.filter((c) => !c.is_mine);
+
+  const head = U.pageHeader('我的班级', {
+    eyebrow: 'MY CLASS',
+    sub: course.name
+      ? `${course.name}${course.term ? ' · ' + course.term : ''} · ${cls ? cls.name : '还没有分班'}`
+      : '还没有加入课程',
+  });
+
+  if (!course.id) {
+    return h('div', {}, head, U.empty('还没有加入班级',
+      '把任课老师给的课程 / 班级邀请码填进去就能看到同班同学了。',
+      h('a', { class: 'btn btn--primary', href: '#/student' }, '去加入课程')));
+  }
+
+  const rosterCard = U.card(
+    U.cardHead(cls ? cls.name : '同学名单', {
+      sub: cls
+        ? `共 ${mates.length} 人${cls.invite_code ? ' · 班级邀请码 ' + cls.invite_code : ''}`
+        : '你还没有被分到班级',
+      actions: cls
+        ? U.badge(`课程共 ${data.total_students} 名学生`, 'soft')
+        : null,
+    }),
+    mates.length
+      ? h('div', { class: 'roster' }, ...mates.map((s, i) =>
+          h('div', { class: ['roster__item', s.is_me ? 'is-me' : ''] },
+            h('span', { class: 'roster__no' }, String(i + 1)),
+            U.avatar({ name: s.name }, 30),
+            h('div', { class: 'roster__main' },
+              h('b', {}, s.name),
+              s.is_me ? h('span', { class: 'badge badge--brand' }, '我') : null),
+            h('span', { class: 'roster__meta' }, s.student_no || '未填学号'))))
+      : U.empty('暂时看不到同学名单',
+          '还没有被分到班级，请把课程 / 班级邀请码填给老师，或用老师发的班级邀请码加入。')
+  );
+
+  const teacherCard = U.card(
+    U.cardHead('任课教师', { sub: '课程内的教师与助教' }),
+    teachers.length
+      ? h('div', { class: 'col', style: { gap: '10px' } }, ...teachers.map((t) =>
+          h('div', { class: 'list-row' },
+            U.avatar({ name: t.name }, 34),
+            h('div', { class: 'list-row__main' },
+              h('div', { class: 'list-row__title' }, h('b', {}, t.name),
+                U.badge(t.role === 'teacher' ? '教师' : '助教', t.role === 'teacher' ? 'brand' : 'soft')),
+              h('div', { class: 'list-row__meta' }, h('span', {}, t.email || '未填邮箱'))))))
+      : U.empty('暂无教师信息', '')
+  );
+
+  return h(
+    'div',
+    {},
+    head,
+    h('div', { class: 'stat-row mb16' },
+      U.stat(cls ? mates.length : 0, '本班人数', { tone: 'brand' }),
+      U.stat(data.total_students || 0, '课程学生总数', { tone: 'blue' }),
+      U.stat(classes.length || 0, '班级数', { tone: 'ok' }),
+      U.stat(teachers.length || 0, '教师与助教', { tone: 'warn' })),
+    h('div', { class: 'grid grid--side' },
+      h('div', { class: 'col', style: { gap: '16px' } }, rosterCard),
+      h('div', { class: 'col', style: { gap: '16px' } },
+        teacherCard,
+        others.length
+          ? U.card(
+              U.cardHead('课程里的其它班级', { sub: '只显示班级与人名数量' }),
+              h('div', { class: 'col', style: { gap: '8px' } }, ...others.map((c) =>
+                h('div', { class: 'list-row' },
+                  h('div', { class: 'list-row__main' }, h('div', { class: 'list-row__title' }, c.name)),
+                  U.badge(c.member_count + ' 人', 'soft')))))
+          : null)
+  ));
+}
+
+/* ======================================================== 全部通知 */
+
+export async function loadNotices() {
+  const rows = await api.get('/api/notices');
+  markNoticesSeen(Math.max(0, ...(rows || []).map((n) => n.id || 0)));
+  return rows || [];
+}
+
+export function renderNotices(rows) {
+  return h(
+    'div',
+    {},
+    U.pageHeader('全部通知', {
+      eyebrow: 'NOTIFICATIONS',
+      sub: '教师发布的作业与站内消息，按时间倒序',
+      actions: h('a', { class: 'btn btn--ghost btn--sm', href: '#/student' }, '返回工作台'),
+    }),
+    rows.length
+      ? h('div', { class: 'col', style: { gap: '10px' } }, ...rows.map((n) =>
+          h('div', { class: 'list-row', style: { alignItems: 'flex-start' } },
+            U.badge(n.kind === 'assignment' ? '作业' : '通知', n.kind === 'assignment' ? 'brand' : 'soft'),
+            h('div', { class: 'list-row__main' },
+              h('div', { class: 'list-row__title' }, h('b', {}, n.title)),
+              n.content ? h('div', { class: 'list-row__meta' }, h('span', {}, n.content)) : null,
+              h('div', { class: 'small muted mt8' },
+                `${n.author_name || '教师'} · ${U.fmtDate(n.created_at)} · ${U.timeAgo(n.created_at)}`)),
+            n.assignment_id
+              ? h('a', { class: 'btn btn--soft btn--xs', href: `#/student/assignment/${n.assignment_id}` }, '查看作业')
+              : null)))
+      : U.empty('还没有通知', '教师发布作业或发送通知后会出现这里。')
   );
 }
 

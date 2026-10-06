@@ -274,7 +274,17 @@ def api_me(ctx):
         "WHERE al.reviewer_id=? AND al.status='pending' AND a.allocation_status='confirmed'",
         (ctx["user"]["id"],),
     )["c"]
-    return ok({"user": public_user(dict(u)), "courses": courses, "peer_pending": peer_pending})
+    # 通知的「未读」由前端记住上次看到的最大 id，这里只给出当前最新的通知
+    notice_latest = 0
+    if courses:
+        row = db.q1(
+            "SELECT MAX(id) m FROM notices WHERE course_id IN (%s)"
+            % ",".join("?" * len(courses)), tuple(c["id"] for c in courses))
+        notice_latest = (row["m"] or 0) if row else 0
+    return ok({
+        "user": public_user(dict(u)), "courses": courses, "peer_pending": peer_pending,
+        "notice_latest": notice_latest,
+    })
 
 
 # ---------------------------------------------------------------------------
@@ -864,6 +874,38 @@ def api_assignment(ctx):
     return ok(d) if d else err(404, "作业不存在")
 
 
+# ---------------------------------------------------------------------------
+# 通知
+# ---------------------------------------------------------------------------
+
+
+def notify_assignment_published(aid: int) -> int | None:
+    """作业发布后自动给学生发一条通知（同一份作业只发一次）。
+
+    平台是站内通知：学生登录后在「学习动态 → 课程通知」和「全部通知」里看到，
+    左侧菜单上的小红点表示有没看过的新通知。
+    """
+    a = db.q1("SELECT * FROM assignments WHERE id=?", (aid,))
+    if not a or (a["status"] or "") != "published":
+        return None
+    if db.q1("SELECT id FROM notices WHERE assignment_id=? LIMIT 1", (aid,)):
+        return None                    # 已经通知过，改截止时间之类不再重复打扰
+    n_prob = db.q1(
+        "SELECT COUNT(*) c FROM assignment_problems WHERE assignment_id=?", (aid,))["c"]
+    bits = [f"共 {n_prob} 道题"]
+    if a["due_at"]:
+        bits.append("截止 " + str(a["due_at"])[:16])
+    if a["peer_review"]:
+        bits.append("含匿名互评")
+    nid = db.ex(
+        "INSERT INTO notices(course_id,title,content,author_id,kind,assignment_id,created_at) "
+        "VALUES(?,?,?,?,?,?,?)",
+        (a["course_id"], "新作业：" + (a["title"] or ""), " · ".join(bits),
+         a["created_by"], "assignment", aid, db.now()),
+    )
+    return nid
+
+
 @route("POST", "/api/assignments", "teacher")
 def api_assignment_create(ctx):
     b = ctx["body"]
@@ -886,6 +928,7 @@ def api_assignment_create(ctx):
         db.ex(
             "INSERT OR IGNORE INTO assignment_problems(assignment_id,problem_id,score,order_index) "
             "VALUES(?,?,?,?)", (aid, pid, 100, i))
+    notify_assignment_published(aid)
     return ok({"id": aid})
 
 
@@ -915,6 +958,8 @@ def api_assignment_update(ctx):
             db.ex(
                 "INSERT INTO assignment_problems(assignment_id,problem_id,score,order_index) "
                 "VALUES(?,?,?,?)", (aid, pid, 100, i))
+    # 草稿改成「已发布」时补发一次通知
+    notify_assignment_published(int(aid))
     return ok({"id": int(aid)})
 
 

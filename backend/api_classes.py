@@ -146,6 +146,67 @@ def api_unassigned(ctx):
     )
 
 
+@route("GET", "/api/my/class")
+def api_my_class(ctx):
+    """「我的班级」：学生看自己所在的班级、任课教师与同班同学。
+
+    只返回**本班**名单，其它班级只给人数——既满足「能认识同班同学」的诉求，
+    也不把全课程的学生名单摊开。
+    """
+    cid = _first_course(ctx)
+    course = db.q1("SELECT id,name,code,term,description,invite_code FROM courses WHERE id=?",
+                   (cid,)) if cid else None
+    classes = []
+    classmates = []
+    teachers = []
+    my_class = None
+    if cid:
+        me = ctx["user"]
+        row = db.q1(
+            "SELECT class_id FROM course_members WHERE course_id=? AND user_id=?", (cid, me["id"]))
+        my_class_id = row["class_id"] if row else None
+        for c in uid_rows(
+            "SELECT id,name,description,invite_code FROM classes WHERE course_id=? ORDER BY name",
+            (cid,),
+        ):
+            c["member_count"] = db.q1(
+                "SELECT COUNT(*) c FROM course_members WHERE course_id=? AND class_id=?",
+                (cid, c["id"]))["c"]
+            c["is_mine"] = bool(my_class_id and c["id"] == my_class_id)
+            if c["is_mine"]:
+                my_class = dict(c)
+            else:
+                c["invite_code"] = None      # 别的班级的邀请码不给看
+            classes.append(c)
+        teachers = uid_rows(
+            "SELECT u.id,u.name,u.email,u.role FROM course_members m JOIN users u ON u.id=m.user_id "
+            "WHERE m.course_id=? AND m.role<>'student' ORDER BY (u.role='teacher') DESC, u.id",
+            (cid,),
+        )
+        if my_class_id and me["role"] == "student":
+            classmates = uid_rows(
+                "SELECT u.id,u.name,u.student_no FROM course_members m "
+                "JOIN users u ON u.id=m.user_id "
+                "WHERE m.course_id=? AND m.role='student' AND m.class_id=? "
+                "ORDER BY u.student_no,u.id",
+                (cid, my_class_id),
+            )
+            for s in classmates:
+                s["is_me"] = s["id"] == me["id"]
+    total_students = db.q1(
+        "SELECT COUNT(*) c FROM course_members WHERE course_id=? AND role='student'", (cid,)
+    )["c"] if cid else 0
+    return ok({
+        "course": dict(course) if course else None,
+        "my_class": my_class,
+        "classes": classes,
+        "classmates": classmates,
+        "teachers": teachers,
+        "total_students": total_students,
+        "is_student": ctx["user"]["role"] == "student",
+    })
+
+
 @route("POST", "/api/classes", "teacher")
 def api_class_create(ctx):
     b = ctx["body"]

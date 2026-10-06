@@ -791,6 +791,16 @@ def api_notice_create(ctx):
     return ok({"id": nid})
 
 
+@route("DELETE", "/api/notices/{id}", "teacher")
+def api_notice_delete(ctx):
+    """撤回一条通知（发错了可以删掉，学生的列表里随之消失）。"""
+    nid = ctx["params"]["id"]
+    if not db.q1("SELECT id FROM notices WHERE id=?", (nid,)):
+        return err(404, "通知不存在")
+    db.ex("DELETE FROM notices WHERE id=?", (nid,))
+    return ok({"id": int(nid)})
+
+
 @route("GET", "/api/dashboard/teacher", "teacher")
 def api_dashboard_teacher(ctx):
     cid0 = _first_course(ctx)

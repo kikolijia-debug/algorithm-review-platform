@@ -186,6 +186,8 @@ function read(path, q) {
     case 'classes':
       if (tail[1] === 'unassigned') return [];
       return classList();
+    case 'my':
+      return myClass();
     case 'assignments':
       if (tail.length === 1) return assignments.map(assignmentSummary);
       if (tail[2] === 'allocations') return allocationsOf(Number(tail[1]));
@@ -1092,7 +1094,38 @@ function studentDashboard() {
       solved: new Set(subs.filter((s) => s.verdict === 'Accepted').map((s) => s.problem_id)).size,
       pending_reviews: pendingReviews.length,
     },
-    notices: DS.notices.slice(0, 3),
+    notices: DS.notices.slice(0, 5),
+  };
+}
+
+/** 「我的班级」：静态演示里按学生名单里的 class_name 还原班级与同学 */
+function myClass() {
+  const students = DS.students || [];
+  const byName = {};
+  students.forEach((s) => {
+    const k = s.class_name || '未分班';
+    byName[k] = (byName[k] || 0) + 1;
+  });
+  const mine = session && session.role === 'student' ? (session.class_name || '未分班') : null;
+  const classes = Object.entries(byName).map(([name, count], i) => ({
+    id: i + 1, name, member_count: count, is_mine: !!mine && name === mine,
+    invite_code: null, description: '',
+  }));
+  const classmates = mine
+    ? students.filter((s) => (s.class_name || '未分班') === mine).map((s) => ({
+        id: s.id, name: s.name, student_no: s.student_no, is_me: session && s.id === session.id,
+      }))
+    : [];
+  return {
+    course: DS.course,
+    my_class: classes.find((c) => c.is_mine) || null,
+    classes,
+    classmates,
+    teachers: (DS.teachers || []).map((t) => ({
+      id: t.id, name: t.name, email: t.email, role: t.role,
+    })),
+    total_students: students.length,
+    is_student: !!(session && session.role === 'student'),
   };
 }
 
@@ -1110,6 +1143,7 @@ function me() {
     user: session,
     courses: [{ ...DS.course, member_role: session.role }],
     peer_pending: DS.allocations.filter((a) => a.reviewer_id === session.id && a.status === 'pending').length,
+    notice_latest: (DS.notices || []).reduce((mx, n) => Math.max(mx, n.id || 0), 0),
   };
 }
 

@@ -148,9 +148,28 @@ function noticeCard(notices) {
     notices.length
       ? h('div', {}, ...notices.slice(0, 6).map((n) =>
           h('div', { class: 'mini-row' },
+            n.kind === 'assignment' ? U.badge('作业', 'brand') : null,
             h('span', { class: 'grow' }, h('b', {}, n.title),
               h('div', { class: 'small muted' }, n.content)),
-            h('span', { class: 'mini-row__time' }, U.timeAgo(n.created_at)))))
+            h('span', { class: 'mini-row__time' }, U.timeAgo(n.created_at)),
+            h('button', {
+              class: 'btn btn--plain btn--xs',
+              title: '撤回这条通知',
+              onclick: async () => {
+                const yes = await confirmDialog({
+                  title: '撤回通知',
+                  message: `确定撤回「${n.title}」吗？学生端会同步消失。`,
+                  confirmText: '撤回',
+                  danger: true,
+                });
+                if (!yes) return;
+                try {
+                  await api.del('/api/notices/' + n.id);
+                  ok('通知已撤回');
+                  router.resolve();
+                } catch (e) { fail(e.message); }
+              },
+            }, '撤回'))))
       : U.empty('暂无通知', '发布后学生会在学习动态里看到。')
   );
 }

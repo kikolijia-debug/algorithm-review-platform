@@ -372,6 +372,15 @@ def main() -> int:
     check("未分班学生列表", "/api/classes/unassigned", role="teacher",
           probe=lambda p: isinstance(p.get("data"), list))
     check("学生无权新建班级", "/api/classes", "POST", {"name": "x"}, role="student", want=403)
+    check("「我的班级」（学生：本班同学名单）", "/api/my/class", role="student",
+          probe=lambda p: p["data"].get("is_student") is True
+          and isinstance(p["data"].get("classmates"), list)
+          and any(s.get("is_me") for s in p["data"]["classmates"]))
+    check("「我的班级」只给本班名单，其它班只给人数", "/api/my/class", role="student",
+          probe=lambda p: all(("member_count" in c) for c in p["data"].get("classes", []))
+          and all(c.get("invite_code") is None for c in p["data"].get("classes", [])
+                  if not c.get("is_mine")))
+    check("「我的班级」（教师也能看）", "/api/my/class", role="teacher")
 
     if not READONLY and cls_list:
         base_cls = max(cls_list, key=lambda c: c["member_count"])
@@ -647,11 +656,32 @@ def main() -> int:
 
     # ---------------------------------------------------------- 通知 / 看板
     section("11. 通知与两端看板")
-    check("通知列表", "/api/notices", role="student")
+    notices = d(check("通知列表", "/api/notices", role="student"), "data", default=[])
+    check("通知带类型字段（作业通知 / 教师通知）", "/api/notices", role="student",
+          probe=lambda p: all("kind" in n for n in p.get("data", []))
+          and any(n.get("kind") == "assignment" for n in p.get("data", [])))
+    check("学生无权发布通知", "/api/notices", "POST",
+          {"title": "x", "content": "y"}, role="student", want=403)
     if not READONLY:
         check("发布通知", "/api/notices", "POST",
               {"title": f"[审计] 通知 {STAMP}", "content": "功能审计临时通知。"},
               role="teacher", probe=lambda p: p.get("data", {}).get("id"))
+        # 发布作业应当自动产生一条「新作业」通知（草稿不发）
+        draft = d(call("/api/assignments", "POST",
+                       {"title": f"[审计] 草稿作业 {STAMP}", "status": "draft",
+                        "problem_ids": [probs[0]["id"]] if probs else []}, role="teacher")[1],
+                  "data", default={})
+        draft_aid = draft.get("id")
+        if draft_aid:
+            draft_notices = d(call("/api/notices", role="teacher")[1], "data", default=[])
+            _report("草稿作业不发通知",
+                    all(n.get("assignment_id") != draft_aid for n in draft_notices), "草稿也发了通知")
+            call(f"/api/assignments/{draft_aid}", "PUT", {"status": "published"}, role="teacher")
+            pub_notices = d(call("/api/notices", role="teacher")[1], "data", default=[])
+            _report("作业发布后自动生成「新作业」通知",
+                    any(n.get("assignment_id") == draft_aid and n.get("kind") == "assignment"
+                        for n in pub_notices), "发布后没有看到通知")
+            call(f"/api/assignments/{draft_aid}", "DELETE", {}, role="teacher")
     check("教师看板", "/api/dashboard/teacher", role="teacher",
           probe=lambda p: d(p, "data", "stats") is not None)
     check("学生看板", "/api/dashboard/student", role="student",
@@ -754,6 +784,7 @@ def main() -> int:
                              "(SELECT id FROM assignments WHERE course_id=?)", (t_cid,))
                 conn.execute("DELETE FROM problems WHERE course_id=?", (t_cid,))
                 conn.execute("DELETE FROM assignments WHERE course_id=?", (t_cid,))
+                conn.execute("DELETE FROM notices WHERE course_id=?", (t_cid,))
                 conn.execute("DELETE FROM courses WHERE id=?", (t_cid,))
                 conn.execute("DELETE FROM users WHERE username IN (?,?)", (t_name, s_name))
                 # 批量导入的「审计学生A/B」也要清掉（含历史遗留的孤儿账号，
@@ -785,6 +816,14 @@ def main() -> int:
                       if call(f"/api/assignments/{a['id']}", "DELETE", {}, role="teacher")[0] == 200)
         _report(f"清理审计临时作业（{removed}/{len(leftovers)} 条）",
                 removed == len(leftovers), "有临时作业未能删除")
+        # 审计发过的通知也一并撤回，否则会留在学生端的「课程通知」里
+        all_notices = d(call("/api/notices", role="teacher")[1], "data", default=[])
+        # 作业通知的标题是「新作业：xxx」，所以按包含匹配而不是前缀匹配
+        dirty = [n for n in all_notices if "[审计]" in str(n.get("title", ""))]
+        gone = sum(1 for n in dirty
+                   if call(f"/api/notices/{n['id']}", "DELETE", {}, role="teacher")[0] == 200)
+        _report(f"清理审计临时通知（{gone}/{len(dirty)} 条）",
+                gone == len(dirty), "有临时通知未能撤回")
 
     # ---------------------------------------------------------- 汇总
     print("\n" + "=" * 72)

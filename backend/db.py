@@ -265,6 +265,8 @@ CREATE TABLE IF NOT EXISTS notices (
     title      TEXT,
     content    TEXT,
     author_id  INTEGER,
+    kind       TEXT DEFAULT 'notice',       -- notice=教师手动发；assignment=发布作业自动生成
+    assignment_id INTEGER,                  -- 作业通知指向的作业
     created_at TEXT NOT NULL
 );
 
@@ -382,6 +384,13 @@ def migrate(conn: sqlite3.Connection) -> None:
     if "allocation_status" not in asg_cols:
         conn.execute("ALTER TABLE assignments ADD COLUMN allocation_status TEXT DEFAULT 'confirmed'")
         conn.commit()
+
+    # 5. 通知要区分「教师手动发」与「发布作业自动发」，并记住来源作业（避免重复通知）
+    notice_cols = [r["name"] for r in conn.execute("PRAGMA table_info(notices)")]
+    for col, ddl in (("kind", "TEXT DEFAULT 'notice'"), ("assignment_id", "INTEGER")):
+        if col not in notice_cols:
+            conn.execute(f"ALTER TABLE notices ADD COLUMN {col} {ddl}")
+    conn.commit()
 
     # 仅在 classes 表为空时反向补齐，避免覆盖教师后来手工调整的结果
     if conn.execute("SELECT COUNT(*) c FROM classes").fetchone()["c"]:

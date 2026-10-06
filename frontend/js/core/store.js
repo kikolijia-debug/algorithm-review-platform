@@ -13,6 +13,7 @@ export const state = {
   theme: 'light',
   sidebarCollapsed: false,
   peerPending: 0,
+  noticeUnread: 0,
   demo: false,
 };
 
@@ -71,6 +72,7 @@ export function reset() {
   state.courses = [];
   state.courseId = null;
   state.peerPending = 0;
+  state.noticeUnread = 0;
   save();
   emit();
 }
