@@ -1,11 +1,11 @@
 """自动评测引擎：编译、运行、限时限内存、判定与复杂度曲线拟合。
 
-支持语言：C++17、C、Python 3、Java（自动探测本机编译器，缺失时给出明确提示）。
+支持语言：C++17、C11、Python 3（自动探测本机编译器，缺失时给出明确提示）。
 
 判定流程
 --------
 1. 写入独立临时工作目录（每次提交一个目录，互不干扰）；
-2. 编译（C/C++/Java）并限制编译时间；编译失败 ⇒ ``CE``；
+2. 编译（C / C++）并限制编译时间；编译失败 ⇒ ``CE``；
 3. 逐个测试点运行：写入输入、启动子进程、读取输出；
 4. 超时则杀死整个进程树 ⇒ ``TLE``；非零退出码 ⇒ ``RE``；
    输出与期望不符（按 token 归一化比较）⇒ ``WA``；
@@ -109,16 +109,6 @@ def cpp_std_flag() -> str:
     return _CPP_STD_CACHE[gpp]
 
 
-def _java_pair():
-    javac = _which("javac")
-    java = None
-    if javac:
-        cand = os.path.join(os.path.dirname(javac), "java.exe" if IS_WIN else "java")
-        if os.path.exists(cand):
-            java = cand
-    return javac, java or _which("java")
-
-
 LANGUAGES = {
     "cpp": {
         "name": "C++",
@@ -147,19 +137,6 @@ LANGUAGES = {
         "setup": None,
         "mem_multiplier": 1.0,
     },
-    "java": {
-        "name": "Java",
-        "source": "Main.java",
-        "compile": lambda exe: [_java_pair()[0], "-encoding", "UTF-8", "-d", ".", "Main.java"],
-        # JVM 本身要占几十 MB，主流 OJ 都会为 Java 放宽内存限制（这里 2 倍），
-        # 并用 -Xmx 把堆上界压在限制之内，避免因默认堆过大被判 MLE。
-        "run": lambda exe, mem_mb=256: [
-            _java_pair()[1], "-Xmx%dm" % max(64, int(mem_mb)), "-Xss64m", "-cp", ".", "Main",
-        ],
-        "available": lambda: _java_pair()[0] is not None and _java_pair()[1] is not None,
-        "setup": None,
-        "mem_multiplier": 2.0,
-    },
 }
 
 
@@ -184,7 +161,6 @@ _TRIVIAL = {
     "cpp": ("main.cpp", "int main(){return 0;}\n"),
     "c": ("main.c", "int main(){return 0;}\n"),
     "python": ("main.py", "pass\n"),
-    "java": ("Main.java", "public class Main{public static void main(String[] a){}}\n"),
 }
 
 
@@ -461,6 +437,57 @@ def peak_memory_kb(pid: int) -> tuple[float, bool]:
 # ---------------------------------------------------------------------------
 
 
+def code_metrics(code: str, language: str = "cpp") -> dict:
+    """代码规模统计：互评时给对方一个客观的「代码画像」。
+
+    统计总行数、有效代码行、注释行、空白行、最长行与平均行长。
+    注释按语言区分（Python 用 ``#``，C/C++ 用 ``//`` 与 ``/* */``），
+    只做单行判断（不解析块注释嵌套），够用且不会误报太多。
+    """
+    lines = (code or "").split("\n")
+    if lines and lines[-1] == "":
+        lines.pop()                      # 结尾换行不算一行
+    blank = comment = 0
+    max_len = 0
+    max_no = 0
+    total_len = 0
+    in_block = False
+    for i, raw in enumerate(lines, 1):
+        s = raw.strip()
+        length = len(raw)
+        total_len += length
+        if length > max_len:
+            max_len, max_no = length, i
+        if not s:
+            blank += 1
+            continue
+        if language == "python":
+            if s.startswith("#"):
+                comment += 1
+            continue
+        if in_block:
+            comment += 1
+            if "*/" in s:
+                in_block = False
+            continue
+        if s.startswith("//"):
+            comment += 1
+        elif s.startswith("/*"):
+            comment += 1
+            if "*/" not in s:
+                in_block = True
+    n = len(lines)
+    return {
+        "lines": n,
+        "code_lines": max(0, n - blank - comment),
+        "comment_lines": comment,
+        "blank_lines": blank,
+        "max_line_len": max_len,
+        "max_line_no": max_no,
+        "avg_line_len": round(total_len / n, 1) if n else 0,
+    }
+
+
 def outputs_match(expected: str, actual: str) -> bool:
     """按 token 比较，忽略行尾空白与多余空行（OJ 通用做法）。"""
     if expected is None:
@@ -574,9 +601,7 @@ def judge_submission(
                 msg = "输出超过 1 MB"
             elif mem_limit_mb and r.get("memory_kb", 0) > mem_limit_mb * 1024:
                 verdict = "MLE"
-                msg = f"内存超过 {mem_limit_mb:.0f} MB" + (
-                    "（Java 已放宽为 2 倍）" if mult > 1 else ""
-                )
+                msg = f"内存超过 {mem_limit_mb:.0f} MB"
             elif not outputs_match(tc.get("expected"), r.get("stdout") or ""):
                 verdict = "WA"
                 msg = "输出与期望不一致"

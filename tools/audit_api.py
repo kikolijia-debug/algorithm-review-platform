@@ -470,7 +470,7 @@ def main() -> int:
 
     res = {}
     if READONLY:
-        skip("提交评测（AC/WA/TLE/RE/CE/Python/Java）", "只读模式不写入提交记录")
+        skip("提交评测（AC/WA/TLE/RE/CE/Python）", "只读模式不写入提交记录")
         skip("重测提交", "只读模式不修改数据")
     elif judge_pid:
         for tag, src, lang, expect in (
@@ -487,17 +487,15 @@ def main() -> int:
                       probe=lambda pl, e=expect: d(pl, "data", "verdict") == e)
             res[tag] = d(p, "data", "submission_id")
 
-        # Java：有 JDK 才应判 AC，没有则应给出明确提示
-        jp = check("提交评测：Java（有/无 JDK 都应给出明确结果）", "/api/submissions", "POST",
-                   {"problem_id": judge_pid, "language": "java",
-                    "source_code": "import java.util.*;\npublic class Main{public static void main(String[] a){"
-                                   "Scanner sc=new Scanner(System.in);int n=sc.nextInt();long s=0;"
-                   "for(int i=0;i<n;i++)s+=sc.nextLong();System.out.println(s);}}"},
-                   role="student", timeout=180,
-                   probe=lambda pl: d(pl, "data", "verdict") in ("Accepted", "Compile Error"))
-        jv = d(jp, "data", "verdict")
-        if jv == "Compile Error" and "未检测到" in (d(jp, "data", "message") or ""):
-            skip("Java 评测", "服务器未安装 JDK，接口已正确返回提示")
+        # 平台只提供 C / C++ / Python：Java 应当被明确拒绝（而不是偷偷跑起来）
+        check("Java 已下线：提交会返回「不支持的语言」", "/api/submissions", "POST",
+              {"problem_id": judge_pid, "language": "java",
+               "source_code": "public class Main{public static void main(String[] a){}}"},
+              role="student", timeout=120,
+              probe=lambda pl: "不支持的语言" in (d(pl, "data", "message") or ""))
+        check("可用语言清单不含 Java", "/api/meta", role="student",
+              probe=lambda pl: [x["key"] for x in d(pl, "data", "languages", default=[])]
+              == ["cpp", "c", "python"])
 
         if res.get("AC"):
             check("提交详情", f"/api/submissions/{res['AC']}", role="teacher",

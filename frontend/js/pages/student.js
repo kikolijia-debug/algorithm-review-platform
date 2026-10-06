@@ -252,15 +252,21 @@ export function renderProblemList({ problems, courses, chapters }, _container, c
   let keyword = '';
   let chapter = (ctx && ctx.query && ctx.query.chapter) || 'all';
   const chapterLabel = new Map((chapters || []).map((c) => [c.key, c.label]));
+  // 题目一律按课件章节顺序排列（未挂章节的排最后），同一章内保持原有顺序
+  const chapterOrder = new Map((chapters || []).map((c, i) => [c.key, i]));
+  const UNKNOWN_CHAPTER = 9999;
+  const orderOf = (p) => chapterOrder.get(p.chapter) ?? UNKNOWN_CHAPTER;
   const listBox = h('div', { class: 'grid grid--auto' });
 
   const paint = () => {
     clear(listBox);
-    const filtered = problems.filter(
-      (p) => (type === 'all' || (type === 'subjective' ? p.type !== 'programming' : p.type === type)) &&
-        (chapter === 'all' || p.chapter === chapter) &&
-        (!keyword || p.title.includes(keyword) || (p.topics || []).some((t) => t.includes(keyword)))
-    );
+    const filtered = problems
+      .filter(
+        (p) => (type === 'all' || (type === 'subjective' ? p.type !== 'programming' : p.type === type)) &&
+          (chapter === 'all' || p.chapter === chapter) &&
+          (!keyword || p.title.includes(keyword) || (p.topics || []).some((t) => t.includes(keyword)))
+      )
+      .sort((a, b) => orderOf(a) - orderOf(b) || a.id - b.id);
     if (!filtered.length) {
       listBox.appendChild(U.empty('没有符合条件的题目', '换个关键词或类型试试。'));
       return;
@@ -552,6 +558,95 @@ export async function loadReviewTask(ctx) {
   return { task, startedAt: new Date().toISOString() };
 }
 
+/** 互评时展示题目的输入输出格式与限制，评审者才知道这份代码要满足什么。 */
+function reviewLimits(limits) {
+  if (!limits || (!limits.input_format && !limits.constraints)) return null;
+  const line = (label, text) =>
+    text
+      ? h('div', { class: 'mt8' },
+          h('b', { class: 'small', style: { color: 'var(--brand)' } }, label),
+          h('span', { class: 'small', style: { whiteSpace: 'pre-wrap' } }, text))
+      : null;
+  return h(
+    'div',
+    { class: 'mt12' },
+    line('输入格式：', limits.input_format),
+    line('输出格式：', limits.output_format),
+    line('数据范围与提示：', limits.constraints),
+    h('div', { class: 'small muted mt8' },
+      `时限 ${limits.time_limit_ms || '—'} ms · 内存 ${limits.memory_limit_mb || '—'} MB · 难度 `
+      + '★'.repeat(Math.min(5, limits.difficulty || 3))
+      + ((limits.topics || []).length ? ' · 知识点 ' + limits.topics.join(' / ') : ''))
+  );
+}
+
+/**
+ * 代码互评的「参考数据」：把机评细节摊开给评审者看。
+ *
+ * 只给出客观事实（代码规模、逐测试点结果、静态检查提醒、作者尝试情况、全班通过率），
+ * 不替同学下结论——评分仍然由评审者按细则判断。
+ */
+function reviewData(task) {
+  const metrics = task.code_metrics || {};
+  const cases = task.test_results || [];
+  const history = task.author_history || {};
+  const cohort = task.cohort || {};
+  const warnings = task.static_warnings || [];
+  if (!Object.keys(metrics).length && !cases.length) return null;
+
+  return h(
+    'div',
+    { class: 'review-data' },
+    h(
+      'div',
+      { class: 'stat-row' },
+      U.stat(metrics.lines == null ? '—' : metrics.lines, '代码总行数', {
+        tone: 'brand',
+        hint: `有效代码 ${metrics.code_lines == null ? '—' : metrics.code_lines} 行 · 注释 ${metrics.comment_lines == null ? '—' : metrics.comment_lines} 行`,
+      }),
+      U.stat(metrics.max_line_len == null ? '—' : metrics.max_line_len, '最长行长度', {
+        tone: 'blue',
+        hint: metrics.max_line_no ? `第 ${metrics.max_line_no} 行` : '',
+      }),
+      U.stat(history.attempts == null ? '—' : history.attempts, '本题提交次数', {
+        tone: 'warn',
+        hint: `其中通过 ${history.accepted || 0} 次`,
+      }),
+      U.stat(cohort.submitted ? Math.round((cohort.pass_rate || 0) * 100) + '%' : '—', '全班通过率', {
+        tone: 'ok',
+        hint: cohort.submitted ? `${cohort.accepted}/${cohort.submitted} 人通过` : '暂无数据',
+      })
+    ),
+    warnings.length ? U.note('静态检查提醒：' + warnings.join('；'), 'warn') : null,
+    cases.length
+      ? h(
+          'details',
+          { class: 'mt12', open: true },
+          h(
+            'summary',
+            { style: { cursor: 'pointer', fontSize: '13px', color: 'var(--brand)' } },
+            `逐测试点结果（${cases.length} 个，可用于判断边界与复杂度处理）`
+          ),
+          h(
+            'div',
+            { class: 'mt8' },
+            U.table(
+              [
+                { title: '测试点', render: (c, i) => c.name || '#' + (i + 1) },
+                { title: '判定', width: '92px', render: (c) => U.verdictBadge(c.verdict) },
+                { title: '用时', width: '92px', class: 'num', render: (c) => U.fmtTime(c.time_ms) },
+                { title: '内存', width: '92px', class: 'num', render: (c) => U.fmtMem(c.memory_kb) },
+                { title: '说明', render: (c) => h('span', { class: 'small muted' }, c.message || '') },
+              ],
+              cases,
+              { dense: true }
+            )
+          )
+        )
+      : null
+  );
+}
+
 export function renderReviewTask({ task, startedAt }) {
   const scores = {};
   let comment = task.my_review ? task.my_review.comment || '' : '';
@@ -586,6 +681,7 @@ export function renderReviewTask({ task, startedAt }) {
       U.badge(task.language || 'cpp', 'neutral'),
       h('span', { class: 'small muted' },
         `共 ${(task.code || '').split('\n').length} 行 · 提交于 ${U.fmtDate(task.submitted_at)}`)),
+    reviewData(task),
     U.codePanel(task.code || '（该同学没有提交记录）', task.language || 'cpp', {
       title: '同学的代码',
       sub: `共 ${(task.code || '').split('\n').length} 行 · ${task.language || 'cpp'}`,
@@ -617,7 +713,8 @@ export function renderReviewTask({ task, startedAt }) {
       h('span', { class: 'muted small' }, isCode ? '预计 8-12 分钟' : '预计阅读 8-12 分钟')),
     h('details', { open: !isCode },
       h('summary', { style: { cursor: 'pointer', fontSize: '13px', color: 'var(--brand)' } }, '查看题目要求'),
-      h('div', { class: 'prose', style: { fontSize: '13px', whiteSpace: 'pre-wrap', marginTop: '8px', color: 'var(--ink-2)' } }, task.problem_statement || '')),
+      h('div', { class: 'prose', style: { fontSize: '13px', whiteSpace: 'pre-wrap', marginTop: '8px', color: 'var(--ink-2)' } }, task.problem_statement || ''),
+      isCode ? reviewLimits(task.problem_limits || {}) : null),
     isCode ? h('div', { class: 'mt16' }, codeBody) : textBody
   );
 
@@ -807,6 +904,9 @@ export async function loadReport() {
 
 export function renderReport({ report, knowledge, ability }) {
   const mastery = knowledge.mastery || {};
+  const now = new Date();
+  const pad2 = (x) => String(x).padStart(2, '0');
+  const today = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`;
   const mine = (knowledge.per_user || {})[uid()] || {};
   const labels = Object.keys(mine);
   const classAvg = labels.map((k) => mastery[k] || 0);
@@ -825,6 +925,25 @@ export function renderReport({ report, knowledge, ability }) {
       sub: `${report.user.name} · ${report.user.class_name || ''} · 班级排名 ${report.rank}/${report.peer_count}`,
       actions: h('button', { class: 'btn btn--ghost', onclick: () => window.print() }, '导出 / 打印'),
     }),
+    // 导出/打印时才显示的封面抬头（屏幕上由顶栏承担同样的信息）
+    h(
+      'div',
+      { class: 'report-head' },
+      h(
+        'div',
+        { class: 'report-head__brand' },
+        h('span', { class: 'report-head__logo', html: U.logoSvg('rp') }),
+        h('div', {},
+          h('b', {}, '涅槃 · 算法设计与分析课程评审平台'),
+          h('span', {}, '学习报告 LEARNING REPORT'))
+      ),
+      h(
+        'div',
+        { class: 'report-head__meta' },
+        h('div', { class: 'report-head__who' }, `${report.user.name} · ${report.user.class_name || '—'}`),
+        h('div', {}, `班级排名 ${report.rank}/${report.peer_count} · 生成于 ${today}`)
+      )
+    ),
     h('div', { class: 'stat-row mb16' },
       U.stat(report.solved, '已解决题目', { tone: 'ok', hint: `共尝试 ${report.attempted} 题` }),
       U.stat(subs.length, '提交次数', { tone: 'brand' }),
@@ -847,7 +966,7 @@ export function renderReport({ report, knowledge, ability }) {
             ? h('div', { class: 'score-list' }, ...weak.map(([k, v]) =>
                 h('div', { class: 'score-item' },
                   h('span', { class: 'score-item__name', title: k }, k),
-                  U.meter(v, { tone: masteryTone(v), label: '' }),
+                  U.meter(v, { tone: masteryTone(v), label: '', showValue: false }),
                   h('span', { class: ['score-item__val', 'tone-' + masteryTone(v)] }, String(v)))))
             : U.empty('暂无数据', '')
         ),
@@ -895,7 +1014,10 @@ export function renderReport({ report, knowledge, ability }) {
             : U.empty('暂无行为数据', '')
         )
       )
-    )
+    ),
+    // 页脚只在打印/导出时出现
+    h('div', { class: 'report-foot' },
+      '本报告由涅槃评审平台自动生成 · 数据来自本课程的真实提交、评测与互评记录')
   );
 }
 

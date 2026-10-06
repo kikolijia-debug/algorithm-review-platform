@@ -60,14 +60,38 @@ def build() -> dict:
     for a in assignments:
         submissions += rows(base_sql + "WHERE s.assignment_id=? ORDER BY s.id DESC LIMIT 60", (a["id"],))
     submissions += rows(base_sql + "WHERE s.assignment_id IS NULL ORDER BY s.id DESC LIMIT 40")
+
+    # 互评中心在静态演示里也要能看到「被评审的那份提交」：
+    # 每条分配关系都补上该作者在这道题上最好的一次提交（行 + 源码）
+    alloc_keys = rows(
+        "SELECT DISTINCT al.problem_id, al.author_id FROM allocations al "
+        "JOIN assignments a ON a.id=al.assignment_id WHERE a.course_id=?", (cid,))
+    review_ids = []
+    for k in alloc_keys:
+        best = db.q1(
+            "SELECT id FROM submissions WHERE problem_id=? AND user_id=? "
+            "ORDER BY (verdict='Accepted') DESC, score DESC, id DESC LIMIT 1",
+            (k["problem_id"], k["author_id"]))
+        if best:
+            review_ids.append(best["id"])
+    if review_ids:
+        marks = ",".join("?" * len(review_ids))
+        submissions += rows(base_sql + "WHERE s.id IN (%s)" % marks, tuple(review_ids))
     seen_ids = set()
     submissions = [s for s in submissions if not (s["id"] in seen_ids or seen_ids.add(s["id"]))]
     submissions.sort(key=lambda r: -r["id"])
-    # 只保留少量源码，避免演示包过大
+    # 只保留少量源码，避免演示包过大；互评要用到的那批一定带上
     codes = {
         r["id"]: r["source_code"]
-        for r in rows("SELECT id,source_code FROM submissions ORDER BY id DESC LIMIT 120")
+        for r in rows("SELECT id,source_code FROM submissions ORDER BY id DESC LIMIT 160")
     }
+    if review_ids:
+        marks = ",".join("?" * len(review_ids))
+        codes.update({
+            r["id"]: r["source_code"]
+            for r in rows("SELECT id,source_code FROM submissions WHERE id IN (%s)" % marks,
+                          tuple(review_ids))
+        })
     for s in submissions:
         s["source_code"] = codes.get(s["id"], "")
         s["detail"] = db.jloads(s.get("detail"), {})

@@ -212,6 +212,9 @@ function openUserMenu(e) {
       class: 'dialog',
       style: {
         position: 'fixed', top: '58px', right: '18px', width: '240px', padding: '10px',
+        // 页面里的 hero 卡片有自己的层叠上下文（z-index: 1），这里必须显式抬高，
+        // 否则菜单会被「已解决题目 / 提交通过率」这类卡片盖住
+        zIndex: '140',
       },
     },
     h('div', { class: 'small muted', style: { padding: '6px 10px' } },

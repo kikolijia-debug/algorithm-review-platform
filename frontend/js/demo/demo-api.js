@@ -503,6 +503,7 @@ function subjectiveDetail(id) {
   return {
     ...s,
     rubric: [],
+    methods: myMethodScores(s.methods, s.user_id),
     review_published: published,
     reviews: published || staff
       ? reviews.map((r) => ({
@@ -553,19 +554,71 @@ function reviewTask(allocationId) {
   if (!a) fail('评审任务不存在');
   const p = DS.problems.find((x) => x.id === a.problem_id) || {};
   const m = DS.assignments.find((x) => x.id === a.assignment_id) || {};
+  const base = {
+    allocation_id: a.id, assignment_id: a.assignment_id, assignment_title: m.title,
+    problem_id: a.problem_id, problem_title: p.title, problem_statement: p.statement,
+    problem_type: p.type,
+    author: '匿名#' + (1000 + (a.author_id * 7919) % 8999),
+    rubric: staffRubric(p),
+    status: a.status, review_due_at: m.review_due_at,
+  };
+  // 编程题：把作者最好的一次提交当作评审对象（与后端一致）
+  if (p.type === 'programming') {
+    const mine = DS.submissions.filter(
+      (s) => s.problem_id === a.problem_id && s.user_id === a.author_id
+    );
+    const rank = (s) => (s.verdict === 'Accepted' ? 0 : 1);
+    const best = mine.slice().sort(
+      (x, y) => rank(x) - rank(y) || (y.score || 0) - (x.score || 0) || y.id - x.id
+    )[0];
+    const detail = (best && best.detail) || {};
+    const others = DS.submissions.filter((s) => s.problem_id === a.problem_id);
+    const cohortUsers = new Set(others.map((s) => s.user_id));
+    const cohortAc = new Set(
+      others.filter((s) => s.verdict === 'Accepted').map((s) => s.user_id)
+    );
+    return {
+      ...base,
+      kind: 'code',
+      code: (best && best.source_code) || '',
+      language: (best && best.language) || 'cpp',
+      verdict: best ? best.verdict : null,
+      auto_score: best ? best.score : null,
+      time_ms: best ? best.time_ms : null,
+      memory_kb: best ? best.memory_kb : null,
+      attempt_no: best ? best.attempt_no : null,
+      submitted_at: best ? best.submitted_at : null,
+      passed: detail.passed, total_cases: detail.total_cases,
+      test_results: [],                       // 静态快照里没有逐测试点明细
+      code_metrics: codeMetrics((best && best.source_code) || '', (best && best.language) || 'cpp'),
+      static_warnings: [],
+      problem_limits: {
+        input_format: p.input_format, output_format: p.output_format,
+        constraints: p.constraints, difficulty: p.difficulty,
+        time_limit_ms: p.time_limit_ms, memory_limit_mb: p.memory_limit_mb,
+        topics: parseArr(p.topics),
+      },
+      author_history: {
+        attempts: mine.length,
+        accepted: mine.filter((s) => s.verdict === 'Accepted').length,
+        best_score: mine.reduce((mx, s) => Math.max(mx, s.score || 0), 0) || null,
+      },
+      cohort: {
+        submitted: cohortUsers.size, accepted: cohortAc.size,
+        pass_rate: cohortUsers.size ? cohortAc.size / cohortUsers.size : 0,
+      },
+      sections: [], content: {}, estimated_minutes: 10,
+    };
+  }
   const ss = DS.subjective.find(
     (s) => s.assignment_id === a.assignment_id && s.problem_id === a.problem_id && s.user_id === a.author_id
   );
   const samples = parseArr(p.samples);
   return {
-    allocation_id: a.id, assignment_id: a.assignment_id, assignment_title: m.title,
-    problem_id: a.problem_id, problem_title: p.title, problem_statement: p.statement,
-    problem_type: p.type,
+    ...base,
     sections: (samples[0] && samples[0].sections) || [],
     content: (ss && ss.content) || {},
-    author: '匿名#' + (1000 + (a.author_id * 7919) % 8999),
-    rubric: staffRubric(p),
-    status: a.status, review_due_at: m.review_due_at, estimated_minutes: 12,
+    estimated_minutes: 12,
   };
 }
 
@@ -1110,6 +1163,43 @@ function parseArr(v) {
   } catch (e) {
     return [];
   }
+}
+
+/** 代码规模统计（与后端 judge.code_metrics 保持一致的口径） */
+function codeMetrics(code, language) {
+  const lines = String(code || '').split('\n');
+  if (lines.length && lines[lines.length - 1] === '') lines.pop();
+  let blank = 0;
+  let comment = 0;
+  let maxLen = 0;
+  let maxNo = 0;
+  let total = 0;
+  let inBlock = false;
+  lines.forEach((raw, i) => {
+    const s = raw.trim();
+    total += raw.length;
+    if (raw.length > maxLen) { maxLen = raw.length; maxNo = i + 1; }
+    if (!s) { blank += 1; return; }
+    if (language === 'python') { if (s.startsWith('#')) comment += 1; return; }
+    if (inBlock) { comment += 1; if (s.includes('*/')) inBlock = false; return; }
+    if (s.startsWith('//')) comment += 1;
+    else if (s.startsWith('/*')) { comment += 1; if (!s.includes('*/')) inBlock = true; }
+  });
+  const n = lines.length;
+  return {
+    lines: n, code_lines: Math.max(0, n - blank - comment), comment_lines: comment,
+    blank_lines: blank, max_line_len: maxLen, max_line_no: maxNo,
+    avg_line_len: n ? Math.round((total / n) * 10) / 10 : 0,
+  };
+}
+
+/** 主观题得分表在库里按「方法 → {学生ID: 分数}」存，学生只看自己那一列 */
+function myMethodScores(methods, userId) {
+  const out = {};
+  Object.entries(methods || {}).forEach(([m, vals]) => {
+    if (vals && typeof vals === 'object') out[m] = vals[String(userId)];
+  });
+  return out;
 }
 
 function mean2(a) {

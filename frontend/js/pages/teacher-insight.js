@@ -349,7 +349,7 @@ const ERROR_REASONS = {
     title: 'Runtime Error（运行时错误）',
     cause: '程序异常退出，通常是数组越界、除零、递归太深导致栈溢出，或者对空结构取元素。',
     advice: '检查数组开得够不够（例如线段树要 4n）、递归深度与边界判断；'
-      + 'Java 的 StackOverflowError、C++ 的段错误都属于这一类。',
+      + 'C++ 的段错误、Python 的 RecursionError 都属于这一类。',
     points: ['数组越界', '除零', '栈溢出', '空指针'],
   },
   'Memory Limit Exceeded': {

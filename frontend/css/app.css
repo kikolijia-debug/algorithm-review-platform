@@ -734,6 +734,13 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
   display: flex; align-items: center; gap: 8px; flex: none;
   flex-wrap: wrap; justify-content: flex-end; max-width: 100%;
 }
+
+/* 代码互评的参考数据：代码规模、逐测试点、作者尝试情况等 */
+.review-data {
+  margin: 14px 0; padding: 12px 14px; border-radius: 12px;
+  background: var(--surface-2); border: 1px solid var(--line);
+}
+.review-data .stat-row { margin-bottom: 0; }
 @media (max-width: 860px) {
   /* 窄屏下按钮排到标题下方，避免把标题挤成一条线 */
   .list-row { flex-wrap: wrap; }
@@ -1018,7 +1025,48 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
   .topbar .badge--warn { display: none; }
 }
 
+/* --------------------------------------------------- 19. 导出 / 打印 */
+/* 学习报告的封面抬头与页脚：屏幕上隐藏，打印时出现 */
+.report-head, .report-foot { display: none; }
+
 @media print {
-  .sidebar, .topbar, .btn, .tabs { display: none !important; }
-  .content { padding: 0; }
+  @page { size: A4; margin: 14mm 12mm; }
+
+  /* 浏览器默认会关掉背景色与阴影，导出就成了「黑字白纸」——这里强制保留配色 */
+  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  html, body { background: #fff !important; }
+
+  .sidebar, .topbar, .btn, .tabs, .nav-toggle, .toast-layer, .overlay-layer,
+  .crumb-link, .page-head__actions { display: none !important; }
+  .shell, .main { display: block !important; margin: 0 !important; padding: 0 !important; }
+  .content { padding: 0 !important; max-width: none !important; }
+
+  /* 卡片不要被切到两页中间；阴影去掉，边框保留，打印更干净 */
+  .card, .stat, .stat-row, .score-item, .hero { break-inside: avoid; page-break-inside: avoid; }
+  .card { box-shadow: none !important; border-color: #d3e2db !important; }
+  .stat { box-shadow: none !important; }
+
+  /* A4 竖版单列更好读，双栏会被挤成窄条 */
+  .grid { display: block !important; }
+  .grid > * > * { margin-bottom: 12px; }
+
+  .page-head { padding: 0 0 8px; border: none; }
+  .page-head__title { font-size: 22px; }
+  .page-head__eyebrow { color: var(--brand) !important; }
+
+  .report-head {
+    display: flex !important; align-items: center; justify-content: space-between;
+    gap: 16px; padding: 0 0 12px; margin-bottom: 14px; border-bottom: 2px solid var(--brand);
+  }
+  .report-head__brand { display: flex; align-items: center; gap: 10px; }
+  .report-head__logo { display: block; width: 34px; height: 34px; border-radius: 10px; overflow: hidden; }
+  .report-head__brand b { display: block; font-size: 14px; color: var(--ink); }
+  .report-head__brand span { display: block; font-size: 10.5px; letter-spacing: 0.12em; color: var(--muted); }
+  .report-head__meta { text-align: right; font-size: 11.5px; color: var(--muted); line-height: 1.7; }
+  .report-head__who { font-size: 13px; font-weight: 600; color: var(--ink); }
+
+  .report-foot {
+    display: block !important; margin-top: 14px; padding-top: 8px;
+    border-top: 1px solid #d3e2db; font-size: 10.5px; color: var(--muted); text-align: center;
+  }
 }

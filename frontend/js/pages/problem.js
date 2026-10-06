@@ -40,15 +40,6 @@ def main():
 
 main()
 `,
-  java: `import java.util.*;
-
-public class Main {
-    public static void main(String[] args) {
-        Scanner sc = new Scanner(System.in);
-        // 在此实现你的算法
-    }
-}
-`,
 };
 
 export function renderProblem({ problem, meta }, container) {

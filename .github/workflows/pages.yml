@@ -32,6 +32,9 @@ jobs:
       - name: Run algorithm unit tests
         run: python tests/run_tests.py
 
+      - name: Check frontend modules (syntax)
+        run: python tools/check_frontend.py
+
       - name: Seed demo database and export static dataset
         run: |
           python tools/export_demo.py

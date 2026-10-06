@@ -1237,6 +1237,12 @@ def api_subjective_detail(ctx):
     d["content"] = {k: v for k, v in jload(d["content"], {}).items() if not k.startswith("_")}
     d["methods"] = jload(d["methods"], {})
     d["rubric"] = jload(d["rubric"], [])
+    # 库里存的是「方法 → {学生ID: 分数}」（教师端对比全班用），学生这里只关心自己那份，
+    # 直接拍平成「方法 → 我的分数」，前端不用再猜结构
+    d["methods"] = {
+        m: vals.get(str(d["user_id"]))
+        for m, vals in (d["methods"] or {}).items() if isinstance(vals, dict)
+    }
     is_owner = d["user_id"] == ctx["user"]["id"]
     teacher = is_teacher(ctx["user"])
     if not (is_owner or teacher):
@@ -1539,16 +1545,42 @@ def api_review_task(ctx):
     }
     # 编程题：把作者最好的一次提交作为评审对象（附自动评测结论，便于评审者判断）
     if al["problem_type"] == "programming":
+        prob = dict(db.q1("SELECT * FROM problems WHERE id=?", (al["problem_id"],)) or {})
         sub = db.q1(
             "SELECT s.* FROM submissions s WHERE s.problem_id=? AND s.user_id=? "
             "ORDER BY (s.verdict='Accepted') DESC, s.score DESC, s.id DESC LIMIT 1",
             (al["problem_id"], al["author_id"]),
         )
         detail = jload(sub["detail"], {}) if sub else {}
+        cases = []
+        if sub:
+            cases = [
+                {"name": r["name"], "verdict": r["verdict"], "time_ms": r["time_ms"],
+                 "memory_kb": r["memory_kb"], "message": r["message"]}
+                for r in uid_rows(
+                    "SELECT * FROM test_results WHERE submission_id=? ORDER BY id", (sub["id"],))
+            ]
+        code = sub["source_code"] if sub else ""
+        lang = sub["language"] if sub else "cpp"
+        # 作者在这道题上的尝试情况：让评审者知道这是「一次过」还是「调了很久」
+        tries_row = db.q1(
+            "SELECT COUNT(*) c, SUM(CASE WHEN verdict='Accepted' THEN 1 ELSE 0 END) ac,"
+            " MAX(score) best FROM submissions WHERE problem_id=? AND user_id=?",
+            (al["problem_id"], al["author_id"]))
+        tries = dict(tries_row) if tries_row else {}
+        # 全班在这道题上的表现：给评审者一个「难度参照」
+        cohort_row = db.q1(
+            "SELECT COUNT(DISTINCT user_id) n FROM submissions WHERE problem_id=?",
+            (al["problem_id"],))
+        cohort = dict(cohort_row) if cohort_row else {}
+        cohort_ac_row = db.q1(
+            "SELECT COUNT(DISTINCT user_id) n FROM submissions WHERE problem_id=? "
+            "AND verdict='Accepted'", (al["problem_id"],))
+        cohort_ac = dict(cohort_ac_row) if cohort_ac_row else {}
         base.update({
             "kind": "code",
-            "code": sub["source_code"] if sub else "",
-            "language": sub["language"] if sub else "cpp",
+            "code": code,
+            "language": lang,
             "verdict": sub["verdict"] if sub else None,
             "auto_score": sub["score"] if sub else None,
             "time_ms": sub["time_ms"] if sub else None,
@@ -1557,6 +1589,27 @@ def api_review_task(ctx):
             "submitted_at": sub["submitted_at"] if sub else None,
             "passed": detail.get("passed"),
             "total_cases": detail.get("total_cases"),
+            # ↓↓↓ 互评需要的「更详细的数据」
+            "test_results": cases,
+            "code_metrics": J.code_metrics(code, lang),
+            "static_warnings": detail.get("warnings") or J.static_check(code, lang),
+            "problem_limits": {
+                "input_format": prob.get("input_format"), "output_format": prob.get("output_format"),
+                "constraints": prob.get("constraints"), "difficulty": prob.get("difficulty"),
+                "time_limit_ms": prob.get("time_limit_ms"),
+                "memory_limit_mb": prob.get("memory_limit_mb"),
+                "topics": jload(prob.get("topics"), []),
+            },
+            "author_history": {
+                "attempts": tries.get("c") or 0,
+                "accepted": tries.get("ac") or 0,
+                "best_score": tries.get("best"),
+            },
+            "cohort": {
+                "submitted": cohort.get("n") or 0, "accepted": cohort_ac.get("n") or 0,
+                "pass_rate": round((cohort_ac.get("n") or 0) / cohort["n"], 4)
+                if cohort.get("n") else 0,
+            },
             "sections": [], "content": {},
             "estimated_minutes": 10,
             "rubric": [r for r in rubric if isinstance(r, dict) and "key" in r]

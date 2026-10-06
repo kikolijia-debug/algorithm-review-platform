@@ -418,18 +418,10 @@ class Seeder:
                         "memory_kb": 5000.0, "passed": 0, "total_cases": 1,
                     }
                     verdict = v["verdict"]
-                    # 语言选择：多数 C++，少数 Python / Java
-                    r = rng.random()
-                    lang = "cpp" if r < 0.8 else ("python" if r < 0.95 else "java")
-                    if lang == "cpp":
-                        src = PB.CPP.get(key, {}).get(tag) or PB.PY.get(key, "")
-                    elif lang == "python":
-                        src = PB.PY.get(key)
-                        if not src:
-                            lang, src = "cpp", PB.CPP.get(key, {}).get(tag, "")
-                    else:
-                        lang = "python" if PB.PY.get(key) else "cpp"
-                        src = PB.PY.get(key) if lang == "python" else PB.CPP.get(key, {}).get(tag, "")
+                    # 语言选择：多数 C++，少数 Python（平台只提供 C / C++ / Python）
+                    lang = "python" if rng.random() >= 0.8 and PB.PY.get(key) else "cpp"
+                    src = (PB.PY.get(key) if lang == "python"
+                           else PB.CPP.get(key, {}).get(tag) or PB.PY.get(key, ""))
                     attempts = 1
                     if verdict != "Accepted":
                         attempts += rng.randint(0, 2)

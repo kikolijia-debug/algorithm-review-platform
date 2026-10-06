@@ -13,7 +13,6 @@ const KEYWORDS = {
   cpp: `alignas alignof asm auto bool break case catch char class const constexpr continue decltype default delete do double else enum explicit export extern false float for friend goto if inline int long mutable namespace new noexcept nullptr operator private protected public register return short signed sizeof static struct switch template this throw true try typedef typename union unsigned using virtual void volatile while cin cout endl std vector string map set pair queue stack sort max min abs scanf printf size_t`,
   c: `auto break case char const continue default do double else enum extern float for goto if inline int long register return short signed sizeof static struct switch typedef union unsigned void volatile while printf scanf NULL`,
   python: `and as assert async await break class continue def del elif else except False finally for from global if import in is lambda None nonlocal not or pass raise return True try while with yield print range len int str float list dict set tuple input map sum min max abs sorted enumerate append split join self`,
-  java: `abstract assert boolean break byte case catch char class const continue default do double else enum extends final finally float for goto if implements import instanceof int interface long native new package private protected public return short static strictfp super switch synchronized this throw throws transient try void volatile while String System out println Scanner`,
   text: ``,
 };
 
@@ -21,7 +20,6 @@ const TYPES = {
   cpp: 'int|long|short|char|float|double|bool|void|size_t|string|vector|map|set|pair|queue|stack|priority_queue|unsigned|auto',
   c: 'int|long|short|char|float|double|void|size_t|FILE',
   python: 'int|float|str|bool|list|dict|set|tuple',
-  java: 'int|long|short|char|float|double|boolean|void|String|Integer|Long|List|Map|Set',
   text: '',
 };
 
@@ -55,7 +53,7 @@ function highlight(code, lang) {
   return out.join('');
 }
 
-const INDENT = { cpp: '    ', c: '    ', java: '    ', python: '    ', text: '  ' };
+const INDENT = { cpp: '    ', c: '    ', python: '    ', text: '  ' };
 
 export function codeEditor({
   value = '',
