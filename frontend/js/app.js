@@ -32,7 +32,6 @@ const NAV = {
         { label: '我的班级', path: '/student/class', icon: icon.users },
         { label: '我的提交', path: '/student/submissions', icon: icon.code },
         { label: '互评中心', path: '/student/reviews', icon: icon.users, badge: 'peerPending' },
-        { label: '我的主观题', path: '/student/subjective', icon: icon.check },
         { label: '学习报告', path: '/student/report', icon: icon.chart },
       ],
     },
@@ -123,7 +122,7 @@ function topbar() {
     '/problem': ['题库与作业', '题目详情'],
     '/student/submissions': ['学习动态', '我的提交'],
     '/student/reviews': ['学习动态', '互评中心'],
-    '/student/subjective': ['学习动态', '我的主观题'],
+    '/student/subjective': ['学习动态', '我的提交', '主观题'],
     '/student/report': ['学习动态', '学习报告'],
     '/student/class': ['学习动态', '我的班级'],
     '/student/notices': ['学习动态', '全部通知'],
@@ -254,8 +253,24 @@ function openMyProfile() {
   });
 }
 
+//: 当前打开的用户菜单（点第二下要能收起来，所以记住引用）
+let userMenuEl = null;
+
+function closeUserMenu() {
+  if (userMenuEl) {
+    userMenuEl.remove();
+    userMenuEl = null;
+  }
+}
+
 function openUserMenu(e) {
   e.stopPropagation();
+  // 再点一次头像就收起，而不是又开一层
+  if (userMenuEl) {
+    closeUserMenu();
+    return;
+  }
+  const close = () => closeUserMenu();
   const menu = h(
     'div',
     {
@@ -272,19 +287,22 @@ function openUserMenu(e) {
     h('button', {
       class: 'btn btn--ghost btn--block',
       style: { marginTop: '6px' },
-      onclick: () => { menu.remove(); router.navigate(isTeacher() ? '/teacher' : '/student'); },
+      onclick: () => { close(); router.navigate(isTeacher() ? '/teacher' : '/student'); },
     }, isTeacher() ? '教学看板' : '我的工作台'),
-    h('button', {
-      class: 'btn btn--ghost btn--block',
-      style: { marginTop: '6px' },
-      onclick: () => { menu.remove(); openMyProfile(); },
-    }, '我的资料'),
-    h('button', { class: 'btn btn--ghost btn--block', style: { marginTop: '6px' }, onclick: () => { menu.remove(); router.navigate('/'); } }, '返回首页'),
+    // 「我的资料」是给教师 / 助教填公开资料的，学生端不需要
+    isTeacher()
+      ? h('button', {
+          class: 'btn btn--ghost btn--block',
+          style: { marginTop: '6px' },
+          onclick: () => { close(); openMyProfile(); },
+        }, '我的资料')
+      : null,
+    h('button', { class: 'btn btn--ghost btn--block', style: { marginTop: '6px' }, onclick: () => { close(); router.navigate('/'); } }, '返回首页'),
     h('button', {
       class: 'btn btn--danger btn--block',
       style: { marginTop: '6px' },
       onclick: async () => {
-        menu.remove();
+        close();
         if (await confirmDialog({ title: '退出登录', message: '确定要退出当前账号吗？', confirmText: '退出' })) {
           try { await api.post('/api/auth/logout'); } catch (err) { /* 忽略网络错误 */ }
           reset();
@@ -293,8 +311,9 @@ function openUserMenu(e) {
       },
     }, '退出登录')
   );
+  userMenuEl = menu;
   document.body.appendChild(menu);
-  setTimeout(() => document.addEventListener('click', () => menu.remove(), { once: true }), 0);
+  setTimeout(() => document.addEventListener('click', closeUserMenu, { once: true }), 0);
 }
 
 export function currentPath() {
@@ -310,7 +329,8 @@ const BACK_MAP = [
   [/^\/teacher\/assignment\/.+/, '/teacher/assignments'],
   [/^\/teacher\/student\/.+/, '/teacher/analytics'],
   [/^\/materials$/, '/teacher'],
-  [/^\/student\/(submissions|reviews|subjective|report)$/, '/student'],
+  [/^\/student\/subjective$/, '/student/submissions'],
+  [/^\/student\/(submissions|reviews|report|class|notices)$/, '/student'],
   [/^\/teacher\/(work|students|assignments|submissions|classes|analytics|ability|reviews|anomalies|similarity|experiments)$/, '/teacher'],
 ];
 
@@ -502,7 +522,8 @@ function registerRoutes() {
   P('/student/submissions/:id', S.loadSubmissionDetail, S.renderSubmissionDetail);
   P('/student/reviews', S.loadReviews, S.renderReviews);
   P('/student/reviews/:id', S.loadReviewTask, S.renderReviewTask);
-  P('/student/subjective', S.loadSubjective, S.renderSubjective);
+  // 旧的「我的主观题」入口：现在并入「我的提交」，这一行保证老链接仍然可用
+  P('/student/subjective', S.loadSubmissions, S.renderSubmissions);
   P('/student/report', S.loadReport, S.renderReport);
   P('/student/class', S.loadMyClass, S.renderMyClass);
   P('/student/notices', S.loadNotices, S.renderNotices);

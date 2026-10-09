@@ -28,3 +28,6 @@ desktop.ini
 
 # 部署用的临时打包文件
 nv-update.tgz
+
+# 用户自己的 Word 文档（不进仓库）
+*.docx

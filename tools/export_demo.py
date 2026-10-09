@@ -54,7 +54,8 @@ def build() -> dict:
     # 否则静态演示里点开旧作业会看到「全班都没交」。
     base_sql = (
         "SELECT s.id,s.assignment_id,s.problem_id,s.user_id,s.language,s.verdict,s.score,s.time_ms,"
-        "s.memory_kb,s.attempt_no,s.submitted_at,s.detail,u.name AS user_name,u.class_name,"
+        "s.memory_kb,s.attempt_no,s.submitted_at,s.review_score,s.detail,"
+        "u.name AS user_name,u.class_name,"
         "p.title AS problem_title FROM submissions s JOIN problems p ON p.id=s.problem_id "
         "JOIN users u ON u.id=s.user_id "
     )

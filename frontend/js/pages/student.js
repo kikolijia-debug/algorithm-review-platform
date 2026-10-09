@@ -388,7 +388,7 @@ function problemCard(p, teacher, chapterLabel) {
   );
 }
 
-/* ============================================================ 我的提交 */
+/* ============================================== 我的提交（编程题 + 主观题） */
 
 export async function loadSubmissions(ctx) {
   const [rows, problems] = await Promise.all([
@@ -398,21 +398,128 @@ export async function loadSubmissions(ctx) {
   return { rows, problems };
 }
 
+/** 主观题记录按需加载：只有切到「主观题」标签页时才发起这一串请求 */
+async function fetchSubjective() {
+  const rows = await api.get('/api/subjective', { mine: 1 });
+  const details = {};
+  for (const r of rows.slice(0, 20)) {
+    try {
+      details[r.id] = await api.get('/api/subjective/' + r.id);
+    } catch (e) {
+      /* 单条失败不影响列表 */
+    }
+  }
+  return { rows, details };
+}
+
+/** 一份主观题的卡片：最终分、各聚合方法得分、匿名评审意见、我的作答 */
+function subjectiveCard(r, details) {
+  const d = details[r.id] || {};
+  const published = d.review_published;
+  const methods = d.methods || {};
+  const comparison = Object.entries(methods).map(([k, v]) => ({
+    label: METHOD_LABEL[k] || k,
+    value: v == null ? null : Number(v),
+  }));
+  return h(
+    'div',
+    { class: 'card', style: { marginBottom: '16px' } },
+    U.cardHead(r.problem_title, {
+      sub: r.assignment_title,
+      actions: [
+        U.badge(r.status === 'done' ? '评审已完成' : '等待评审', r.status === 'done' ? 'ok' : 'warn'),
+        d.final_score != null ? U.badge('最终 ' + d.final_score + ' 分', 'brand') : null,
+      ],
+    }),
+    published
+      ? h(
+          'div',
+          { class: 'grid grid--side', style: { gap: '16px' } },
+          h(
+            'div',
+            {},
+            h('h4', { class: 'small muted', style: { marginBottom: '8px' } }, '各聚合方法下的得分'),
+            comparison.some((c) => c.value != null)
+              ? h('div', { class: 'score-list' }, ...comparison.map((c) =>
+                  h('div', { class: 'score-item' },
+                    h('span', { class: 'score-item__name' }, c.label),
+                    U.meter(c.value == null ? 0 : c.value,
+                      { tone: c.label.includes('动态') ? 'brand' : 'ok' }),
+                    h('span', { class: 'score-item__val' }, c.value == null ? '—' : c.value.toFixed(1)))))
+              : U.empty('暂无聚合结果', '教师执行评分聚合后显示')
+          ),
+          h(
+            'div',
+            {},
+            h('h4', { class: 'small muted', style: { marginBottom: '8px' } },
+              `评审意见（${(d.reviews || []).length} 份，匿名）`),
+            (d.reviews || []).length
+              ? h('div', { class: 'col' }, ...d.reviews.map((rv) =>
+                  h('div', { class: 'list-row', style: { display: 'block' } },
+                    h('div', { class: 'row', style: { marginBottom: '6px' } },
+                      h('span', { class: 'anon-tag' }, rv.reviewer),
+                      U.badge(rv.total + ' 分', 'brand'),
+                      h('span', { class: 'muted small' }, `用时 ${Math.round(rv.duration_sec || 0)} 秒`)),
+                    h('div', { style: { fontSize: '13px', color: 'var(--ink-2)' } }, rv.comment))))
+              : U.empty('暂无文字意见', '')
+          )
+        )
+      : U.note(d.pending_reason || '评审尚未结束，结果将在评审截止后公布。', 'warn'),
+    h('details', { class: 'mt12' },
+      h('summary', { style: { cursor: 'pointer', fontSize: '13px', color: 'var(--brand)' } }, '查看我的作答'),
+      h('div', { class: 'mt12' },
+        Object.entries(d.content || {}).map(([k, v]) =>
+          h('section', { class: 'mt12' }, h('h4', { class: 'small', style: { color: 'var(--brand)' } }, k),
+            h('div', { style: { whiteSpace: 'pre-wrap', fontSize: '13px', color: 'var(--ink-2)' } }, String(v))))))
+  );
+}
+
 export function renderSubmissions({ rows, problems }) {
+  // 旧链接 #/student/subjective 直接落在「主观题」标签页上，不做跳转丢失
+  let tab = router.path().split('?')[0] === '/student/subjective' ? 'subjective' : 'code';
   let verdict = '';
   let keyword = '';
-  const box = h('div');
-  const paint = () => {
+  let subj = null;
+  let subjLoading = false;
+  let subjError = '';
+  const paneBox = h('div');
+
+  const codePane = () => {
     const filtered = rows.filter(
       (r) => (!verdict || r.verdict === verdict) && (!keyword || r.problem_title.includes(keyword))
     );
-    clear(box);
-    box.appendChild(
+    const ac = rows.filter((r) => r.verdict === 'Accepted').length;
+    return h(
+      'div',
+      {},
+      h('div', { class: 'stat-row mb16' },
+        U.stat(rows.length, '总提交次数'),
+        U.stat(ac, '通过次数', { tone: 'ok' }),
+        U.stat(Math.round((ac / Math.max(1, rows.length)) * 100) + '%', '通过率', { tone: 'blue' }),
+        U.stat(new Set(rows.filter((r) => r.verdict === 'Accepted').map((r) => r.problem_id)).size,
+          '已解决题目', { tone: 'warn' })),
+      h('div', { class: 'filterbar' },
+        h('div', { class: 'search-box' }, h('span', { class: 'search-box__icon', html: U.icon.search }),
+          h('input', {
+            class: 'input search', placeholder: '搜索题目…',
+            oninput: (e) => { keyword = e.target.value.trim(); paint(); },
+          })),
+        U.select(
+          [{ value: '', label: '全部判定' },
+            ...Object.keys(VERDICT_MEANING).map((v) => ({ value: v, label: v }))],
+          { onchange: (e) => { verdict = e.target.value; paint(); } })),
+      U.note('点任意一行可以看到逐测试点结果、源代码，以及同学对我这份代码的评审意见。', 'info'),
       U.table(
         [
           { title: '题目', render: (r) => h('b', {}, r.problem_title) },
           { title: '判定', width: '110px', render: (r) => U.verdictBadge(r.verdict, { full: false }) },
           { title: '得分', width: '80px', class: 'num', render: (r) => (r.score == null ? '—' : r.score) },
+          {
+            title: '代码互评', width: '100px', class: 'num',
+            render: (r) => (r.review_score == null
+              ? h('span', { class: 'muted small' }, '—')
+              : h('b', { style: { color: 'var(--brand)' } }, r.review_score)),
+          },
           { title: '耗时', width: '100px', class: 'num', render: (r) => U.fmtTime(r.time_ms) },
           { title: '内存', width: '100px', class: 'num', render: (r) => U.fmtMem(r.memory_kb) },
           { title: '语言', width: '86px', render: (r) => U.badge(r.language, 'neutral') },
@@ -424,29 +531,61 @@ export function renderSubmissions({ rows, problems }) {
       )
     );
   };
-  paint();
-  const stats = {
-    total: rows.length,
-    ac: rows.filter((r) => r.verdict === 'Accepted').length,
+
+  const subjPane = () => {
+    if (subjError) return U.empty('主观题记录加载失败', subjError);
+    if (!subj) {
+      if (!subjLoading) {
+        subjLoading = true;
+        fetchSubjective()
+          .then((d) => { subj = d; })
+          .catch((e) => { subjError = e.message; })
+          .finally(() => { subjLoading = false; paint(); });
+      }
+      return U.loading('正在加载主观题记录…');
+    }
+    const list = subj.rows || [];
+    const done = list.filter((r) => r.status === 'done').length;
+    const scored = list.map((r) => (subj.details[r.id] || {}).final_score).filter((v) => v != null);
+    return h(
+      'div',
+      {},
+      h('div', { class: 'stat-row mb16' },
+        U.stat(list.length, '主观题提交份数'),
+        U.stat(done, '评审已完成', { tone: 'ok' }),
+        U.stat(list.length - done, '等待评审', { tone: 'warn' }),
+        U.stat(scored.length ? (scored.reduce((a, b) => a + b, 0) / scored.length).toFixed(1) : '—',
+          '平均最终分', { tone: 'blue' })),
+      list.length
+        ? h('div', {}, ...list.map((r) => subjectiveCard(r, subj.details)))
+        : U.empty('还没有提交过主观题', '去题库选择一道算法分析题 / 证明题 / 开放性问答题开始作答。')
+    );
   };
+
+  const paint = () => {
+    clear(paneBox);
+    paneBox.appendChild(tab === 'code' ? codePane() : subjPane());
+  };
+  paint();
+
+  const tabBar = U.tabs(
+    [
+      { key: 'code', label: '编程题', badge: rows.length || null },
+      { key: 'subjective', label: '主观题' },
+    ],
+    { value: tab, onChange: (k) => { tab = k; paint(); } }
+  );
+
   return h(
     'div',
     {},
     U.pageHeader('我的提交', {
-      eyebrow: 'SUBMISSIONS',
-      sub: '点击任意一行查看逐测试点详情。',
+      eyebrow: 'MY SUBMISSIONS',
+      sub: '编程题看自动评测结果，主观题看互评得分与匿名意见；点任意一行查看详情。',
+      actions: h('a', { class: 'btn btn--primary', href: '#/problems' }, '去作答'),
     }),
-    h('div', { class: 'stat-row mb16' },
-      U.stat(stats.total, '总提交次数'),
-      U.stat(stats.ac, '通过次数', { tone: 'ok' }),
-      U.stat(Math.round((stats.ac / Math.max(1, stats.total)) * 100) + '%', '通过率', { tone: 'blue' }),
-      U.stat(new Set(rows.filter((r) => r.verdict === 'Accepted').map((r) => r.problem_id)).size, '已解决题目', { tone: 'warn' })),
-    h('div', { class: 'filterbar' },
-      h('div', { class: 'search-box' }, h('span', { class: 'search-box__icon', html: U.icon.search }),
-        h('input', { class: 'input search', placeholder: '搜索题目…', oninput: (e) => { keyword = e.target.value.trim(); paint(); } })),
-      U.select([{ value: '', label: '全部判定' }, ...Object.keys(VERDICT_MEANING).map((v) => ({ value: v, label: v }))],
-        { onchange: (e) => { verdict = e.target.value; paint(); } })),
-    box
+    tabBar,
+    h('div', { class: 'mt16' }, paneBox)
   );
 }
 
@@ -1000,108 +1139,8 @@ export function renderReviewTask({ task, startedAt }) {
   );
 }
 
-/* ======================================================== 我的主观题 */
-
-export async function loadSubjective() {
-  const [rows, assignments] = await Promise.all([
-    api.get('/api/subjective', { mine: 1 }),
-    api.get('/api/assignments'),
-  ]);
-  const details = {};
-  for (const r of rows.slice(0, 20)) {
-    try {
-      details[r.id] = await api.get('/api/subjective/' + r.id);
-    } catch (e) {
-      /* 单条失败不影响列表 */
-    }
-  }
-  return { rows, assignments, details };
-}
-
-export function renderSubjective({ rows, assignments, details }) {
-  const cards = rows.length
-    ? rows.map((r) => {
-        const d = details[r.id] || {};
-        const published = d.review_published;
-        const methods = d.methods || {};
-        const comparison = Object.entries(methods).map(([k, v]) => ({
-          label: METHOD_LABEL[k] || k,
-          value: v == null ? null : Number(v),
-        }));
-        return h(
-          'div',
-          { class: 'card', style: { marginBottom: '16px' } },
-          U.cardHead(r.problem_title, {
-            sub: r.assignment_title,
-            actions: [
-              U.badge(r.status === 'done' ? '评审已完成' : '等待评审', r.status === 'done' ? 'ok' : 'warn'),
-              d.final_score != null ? U.badge('最终 ' + d.final_score + ' 分', 'brand') : null,
-            ],
-          }),
-          published
-            ? h(
-                'div',
-                { class: 'grid grid--side', style: { gap: '16px' } },
-                h(
-                  'div',
-                  {},
-                  h('h4', { class: 'small muted', style: { marginBottom: '8px' } }, '各聚合方法下的得分'),
-                  comparison.some((c) => c.value != null)
-                    ? h(
-                        'div',
-                        { class: 'score-list' },
-                        ...comparison.map((c) =>
-                          h(
-                            'div',
-                            { class: 'score-item' },
-                            h('span', { class: 'score-item__name' }, c.label),
-                            U.meter(c.value == null ? 0 : c.value, { tone: c.label.includes('动态') ? 'brand' : 'ok' }),
-                            h('span', { class: 'score-item__val' }, c.value == null ? '—' : c.value.toFixed(1))
-                          )
-                        )
-                      )
-                    : U.empty('暂无聚合结果', '教师执行评分聚合后显示')
-                ),
-                h(
-                  'div',
-                  {},
-                  h('h4', { class: 'small muted', style: { marginBottom: '8px' } }, `评审意见（${(d.reviews || []).length} 份，匿名）`),
-                  (d.reviews || []).length
-                    ? h('div', { class: 'col' }, ...d.reviews.map((rv) =>
-                        h('div', { class: 'list-row', style: { display: 'block' } },
-                          h('div', { class: 'row', style: { marginBottom: '6px' } },
-                            h('span', { class: 'anon-tag' }, rv.reviewer),
-                            U.badge(rv.total + ' 分', 'brand'),
-                            h('span', { class: 'muted small' }, `用时 ${Math.round(rv.duration_sec || 0)} 秒`)),
-                          h('div', { style: { fontSize: '13px', color: 'var(--ink-2)' } }, rv.comment))))
-                    : U.empty('暂无文字意见', '')
-                )
-              )
-            : U.note(d.pending_reason || '评审尚未结束，结果将在评审截止后公布。', 'warn'),
-          h('details', { class: 'mt12' },
-            h('summary', { style: { cursor: 'pointer', fontSize: '13px', color: 'var(--brand)' } }, '查看我的作答'),
-            h(
-              'div',
-              { class: 'mt12' },
-              Object.entries((details[r.id] || {}).content || {}).map(([k, v]) =>
-                h('section', { class: 'mt12' }, h('h4', { class: 'small', style: { color: 'var(--brand)' } }, k),
-                  h('div', { style: { whiteSpace: 'pre-wrap', fontSize: '13px', color: 'var(--ink-2)' } }, String(v))))
-            )
-          )
-        );
-      })
-    : U.empty('还没有提交过主观题', '去题库选择一道主观题开始作答吧。');
-  return h(
-    'div',
-    {},
-    U.pageHeader('我的主观题', {
-      eyebrow: 'SUBJECTIVE WORK',
-      sub: '提交记录与互评结果',
-      actions: h('a', { class: 'btn btn--primary', href: '#/problems' }, '去作答'),
-    }),
-    cards
-  );
-}
+/* 说明：「我的主观题」已并入「我的提交」的第二个标签页（见上），
+   这里只保留旧链接 #/student/subjective 的兼容处理（在路由里指向同一个页面）。 */
 
 /* ========================================================== 学习报告 */
 
