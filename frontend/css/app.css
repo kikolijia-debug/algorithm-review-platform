@@ -8,6 +8,14 @@
    ========================================================================= */
 
 /* ------------------------------------------------------------- 1. 令牌 */
+@font-face {
+  font-family: 'Nirvana Brush';
+  src: url('../assets/fonts/ma-shan-zheng-titles.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   --bg: #f2f6f4;
   --bg-soft: #eef4f1;
@@ -47,6 +55,7 @@
   --font: "Inter", "PingFang SC", "Microsoft YaHei", "Noto Sans SC", system-ui, -apple-system, sans-serif;
   --font-mono: "JetBrains Mono", "Cascadia Code", "Consolas", "SFMono-Regular", "Menlo", monospace;
   --font-display: "Songti SC", "SimSun", "Noto Serif SC", Georgia, serif;
+  --font-art: "Nirvana Brush", "Kaiti SC", "KaiTi", "STKaiti", var(--font-display);
   --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
@@ -91,7 +100,7 @@ body {
 h1, h2, h3, h4 { margin: 0; font-weight: 600; letter-spacing: -0.01em; }
 p { margin: 0; }
 a { color: var(--brand); text-decoration: none; }
-a:hover { text-decoration: underline; }
+a:hover { color: var(--brand-2); }
 button { font-family: inherit; }
 ul, ol { margin: 0; padding-left: 1.2em; }
 ::selection { background: var(--brand-soft-2); }
@@ -267,11 +276,11 @@ code, pre { font-family: var(--font-mono); }
 
 .page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; margin-bottom: 18px; flex-wrap: wrap; }
 .page-head__eyebrow { display: flex; align-items: center; gap: 12px; font-size: 11px; letter-spacing: 0.12em; color: var(--brand); margin-bottom: 8px; }
-.page-head__eyebrow::before { content: ''; width: 20px; height: 1px; background: currentColor; flex: none; }
+.page-head__eyebrow::before { content: ''; width: 4px; height: 4px; border-radius: 1px; background: currentColor; flex: none; }
 .page-head__title { font-family: var(--font-display); font-size: 28px; line-height: 1.4; letter-spacing: 0.035em; overflow-wrap: anywhere; }
 .page-head__sub { color: var(--ink-2); font-size: 13px; line-height: 1.8; margin-top: 7px; max-width: 60ch; text-wrap: pretty; }
 .type-index { font-family: var(--font-mono); font-size: 11px; font-weight: 500; letter-spacing: 0.04em; font-variant-numeric: tabular-nums; }
-.text-emphasis { font-weight: 600; color: inherit; box-shadow: inset 0 -0.28em rgba(121, 226, 184, 0.18); padding: 0 2px; }
+.text-emphasis { font-family: var(--font-mono); font-weight: 600; color: inherit; padding: 0 2px; }
 .page-head__actions { display: flex; gap: 10px; flex-wrap: wrap; }
 
 /* 深色英雄卡：首页与看板顶部 */
@@ -654,7 +663,7 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
   font-size: 12px; letter-spacing: 0.06em; margin-bottom: 20px;
 }
 .landing__title { font-family: var(--font-display); font-size: clamp(34px, 4vw, 58px); line-height: 1.36; letter-spacing: 0.035em; color: #f2fbf7; text-wrap: balance; }
-.landing__title em { font-style: normal; color: #93e4bf; text-decoration: underline; text-decoration-color: rgba(147, 228, 191, 0.3); text-underline-offset: 0.22em; text-decoration-thickness: 1px; }
+.landing__title em { font-style: normal; color: #93e4bf; }
 .landing__sub { margin-top: 18px; color: #9bb8ad; font-size: 14.5px; max-width: 62ch; line-height: 1.85; }
 .landing__cta { display: flex; gap: 12px; margin-top: 28px; flex-wrap: wrap; }
 .landing__stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
@@ -674,7 +683,7 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
 }
 .landing__card:hover { background: rgba(255, 255, 255, 0.07); transform: translateY(-2px); }
 .landing__card .idx { display: flex; align-items: flex-start; gap: 12px; color: #9bb8ad; }
-.landing__card .type-index { color: #93e4bf; border-bottom: 1px solid rgba(147, 228, 191, 0.4); padding-bottom: 4px; }
+.landing__card .type-index { color: #93e4bf; }
 .landing__tech { font-family: var(--font); font-size: 11px; line-height: 1.8; }
 .landing__card h3 { font-size: 17px; margin: 8px 0 8px; color: #eafaf3; }
 .landing__card p { font-size: 13px; color: #93b0a5; line-height: 1.8; }
@@ -790,7 +799,7 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
 .statement section { margin-top: 16px; }
 .statement h4 { font-size: 13.5px; color: var(--brand); margin-bottom: 6px; display: flex; align-items: center; gap: 7px; }
 .statement .prose { font-size: 13.5px; line-height: 1.95; color: var(--ink-2); white-space: pre-wrap; }
-.prose strong { color: var(--ink); font-weight: 600; text-decoration: underline; text-decoration-color: var(--brand-soft-2); text-decoration-thickness: 4px; text-underline-offset: 2px; text-decoration-skip-ink: none; }
+.prose strong { color: var(--brand); font-weight: 650; }
 .prose code { color: var(--brand); background: var(--brand-soft); padding: 2px 5px; border-radius: 4px; font-size: 0.92em; overflow-wrap: anywhere; }
 .statement h4::before { content: ''; width: 3px; height: 12px; background: var(--brand); border-radius: 1px; flex: none; }
 .sample { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; margin-top: 10px; }
@@ -1003,6 +1012,17 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
 .sim-mid { color: var(--amber); }
 .sim-low { color: var(--muted); }
 
+/* 标题使用毛笔字；小字号的说明与表格仍沿用正文与数字字体。 */
+.landing__title, .landing__h2, .login__title, .login__card h2,
+.page-head__title, .hero__title, .launch__title {
+  font-family: var(--font-art);
+  font-weight: 400;
+  font-synthesis: none;
+}
+.page-head__title { font-size: 30px; letter-spacing: 0.055em; }
+.landing__title { line-height: 1.42; letter-spacing: 0.05em; }
+.login__title { font-size: 44px; line-height: 1.5; }
+
 /* --------------------------------------------------------- 19. 响应式 */
 @media (max-width: 1180px) {
   .grid--4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -1023,7 +1043,7 @@ select.input { appearance: none; background-image: linear-gradient(45deg, transp
   .shell.is-collapsed .nav__item { justify-content: flex-start; padding: 9px 10px; }
   .landing__title { font-size: 34px; }
   .login__title { font-size: 30px; }
-  .page-head__title { font-size: 20px; }
+  .page-head__title { font-size: 25px; }
   .hero { padding: 18px; }
   .hero__title { font-size: 21px; }
   .form-grid, .form-grid--3 { grid-template-columns: minmax(0, 1fr); }
