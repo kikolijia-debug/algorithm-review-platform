@@ -55,6 +55,11 @@ def _sync_class_name(user_ids) -> None:
 
 
 def _assign_class(cid: int, user_ids, course_id: int) -> int:
+    from .access import APIError
+    for uid in user_ids:
+        if not db.q1("SELECT 1 FROM course_members WHERE course_id=? AND user_id=? AND role='student'",
+                     (course_id, uid)):
+            raise APIError(403, "只能添加本课程学生")
     conn = db.get_conn()
     for uid in user_ids:
         conn.execute(

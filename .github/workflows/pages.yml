@@ -32,6 +32,9 @@ jobs:
       - name: Run algorithm unit tests
         run: python tests/run_tests.py
 
+      - name: Run HTTP workflow regression tests
+        run: python tests/test_workflows.py
+
       - name: Check frontend modules (syntax)
         run: python tools/check_frontend.py
 

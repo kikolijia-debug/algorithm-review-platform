@@ -44,6 +44,12 @@ main()
 
 export function renderProblem({ problem, meta }, container) {
   const isProg = problem.type === 'programming';
+  const assignments = problem.assignments || [];
+  const assignmentPicker = assignments.length ? U.select(
+    [{ value: '', label: isProg ? '自由练习（不计入作业）' : '请选择所属作业' },
+     ...assignments.map((a) => ({ value: String(a.id), label: a.title }))],
+    { value: String(problem.assignment_id || ''), onChange: (e) => router.navigate('/problem/' + problem.id + (e.target.value ? '?assignment_id=' + e.target.value : '')) }
+  ) : null;
   const head = U.pageHeader(problem.title, {
     eyebrow: 'PROBLEM #' + problem.id,
     sub: `${PROBLEM_TYPE[problem.type] || problem.type} · 难度 ${'★'.repeat(Math.min(5, problem.difficulty))}`,
@@ -89,7 +95,7 @@ export function renderProblem({ problem, meta }, container) {
   );
 
   const right = isProg ? programmingPane(problem, meta) : subjectivePane(problem);
-  return h('div', {}, head, h('div', { class: 'problem-layout' }, statement, right));
+  return h('div', {}, head, assignmentPicker ? h('div', { class: 'row mb16', style: { gap: '12px' } }, h('b', {}, '提交归属'), assignmentPicker) : null, h('div', { class: 'problem-layout' }, statement, right));
 }
 
 function section(title, body) {
@@ -103,10 +109,13 @@ function programmingPane(problem, meta) {
   let lang = langs[0] ? langs[0].key : 'cpp';
   let lastResult = null;
 
-  const editor = codeEditor({ value: TEMPLATES[lang], language: lang, height: 400 });
+  const draftKey = (language) => `ajp.code.${state.user.id}.${problem.assignment_id || 'practice'}.${problem.id}.${language}`;
+  const readDraft = (language) => { try { return localStorage.getItem(draftKey(language)); } catch { return null; } };
+  const persist = () => { try { localStorage.setItem(draftKey(lang), editor.getValue()); } catch { /* 本地存储不可用时仍可作答 */ } };
+  const editor = codeEditor({ value: readDraft(lang) || TEMPLATES[lang], language: lang, height: 400 });
   const resultBox = h('div', {});
 
-  const submitBtn = U.btn('提交评测', { tone: 'primary', icon: U.icon.send, onClick: () => doSubmit() });
+  const submitBtn = U.btn(problem.assignment_id ? '提交作业评测' : '提交练习评测', { tone: 'primary', icon: U.icon.send, onClick: () => doSubmit() });
   const runBtn = U.btn('运行样例', { tone: 'ghost', icon: U.icon.play, onClick: () => doRun() });
   const status = h('div', { class: 'editor-status' });
 
@@ -157,20 +166,15 @@ function programmingPane(problem, meta) {
     {
       value: lang,
       onChange: (k) => {
+        persist();
         lang = k;
         editor.setLanguage(k);
-        if (!editor.getValue().trim() || Object.values(TEMPLATES).some((t) => t === editor.getValue())) {
-          editor.setValue(TEMPLATES[k] || '');
-        }
+        editor.setValue(readDraft(k) || TEMPLATES[k] || '');
       },
     }
   );
 
-  const saved = localStorage.getItem('ajp.code.' + problem.id);
-  if (saved) editor.setValue(saved);
-  editor.addEventListener('input', () => {});
-  const persist = () => localStorage.setItem('ajp.code.' + problem.id, editor.getValue());
-  editor.el && editor.el.addEventListener('input', persist);
+  editor.el.addEventListener('input', persist);
 
   return h(
     'div',
@@ -268,7 +272,11 @@ function renderResult(box, r, { preview }) {
 function subjectivePane(problem) {
   const sections = (problem.samples && problem.samples[0] && problem.samples[0].sections) || [];
   const existing = problem.my_subjective;
-  const inputs = {};
+  const draftKey = `ajp.subjective.${state.user.id}.${problem.assignment_id || 'unselected'}.${problem.id}`;
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(draftKey) || 'null'); } catch { /* 忽略损坏的草稿 */ }
+  const inputs = { ...((existing && existing.content) || {}), ...(saved || {}) };
+  const persist = () => { try { localStorage.setItem(draftKey, JSON.stringify(inputs)); } catch { /* 本地存储不可用 */ } };
   const editorBox = h('div', { class: 'col', style: { gap: '12px' } });
   const fields = sections.length
     ? sections
@@ -279,8 +287,9 @@ function subjectivePane(problem) {
     editorBox.appendChild(
       U.field(sec.name, U.textarea({
         placeholder: sec.hint || '请分点作答…',
+        value: inputs[sec.key] || '',
         style: { minHeight: '150px' },
-        oninput: (e) => (inputs[sec.key] = e.target.value),
+        oninput: (e) => { inputs[sec.key] = e.target.value; persist(); },
       }), { hint: sec.hint })
     )
   );
@@ -288,6 +297,7 @@ function subjectivePane(problem) {
   const submit = U.btn(existing ? '更新提交' : '提交作业', {
     tone: 'primary',
     icon: U.icon.send,
+    disabled: !problem.assignment_id,
     onClick: async () => {
       const content = {};
       fields.forEach((f) => (content[f.key] = inputs[f.key] || ''));
@@ -300,6 +310,7 @@ function subjectivePane(problem) {
           problem_id: problem.id,
           content,
         });
+        try { localStorage.removeItem(draftKey); } catch { /* 忽略 */ }
         ok('已提交，系统将在互评阶段匿名分配给你的同学');
         router.resolve();
       } catch (e) {
@@ -327,7 +338,7 @@ function subjectivePane(problem) {
     { class: 'col', style: { gap: '14px' } },
     U.card(
       U.cardHead(existing ? '修改作答' : '在线作答', {
-        sub: '提交后会被匿名分配给其他同学评审，请务必写清推导过程',
+        sub: problem.assignment_id ? '草稿自动保存在当前浏览器；提交后进入匿名互评。' : '请先在上方选择所属作业，再提交作答。',
         actions: existing ? U.badge('已提交 · ' + (existing.status === 'done' ? '评审已完成' : '评审中'), existing.status === 'done' ? 'ok' : 'warn') : null,
       }),
       editorBox,

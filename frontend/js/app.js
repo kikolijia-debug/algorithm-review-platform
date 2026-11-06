@@ -167,6 +167,7 @@ function topbar() {
       : null,
     h('div', { class: 'topbar__crumbs' }, ...crumbs),
     h('div', { class: 'topbar__spacer' }),
+    (state.courses || []).length > 1 ? U.select(state.courses.map((c) => ({ value: String(c.id), label: c.name })), { value: String(state.courseId || ''), onChange: (e) => { state.courseId = Number(e.target.value); save(); router.resolve(); } }) : null,
     // 演示数据提示：数据由 seed 脚本生成时明确标注，避免被误当成真实班级数据
     state.meta && state.meta.demo
       ? h('span', {
@@ -253,6 +254,24 @@ function openMyProfile() {
   });
 }
 
+function openPassword() {
+  const current = U.input({ type: 'password', autocomplete: 'current-password' });
+  const next = U.input({ type: 'password', autocomplete: 'new-password' });
+  const repeat = U.input({ type: 'password', autocomplete: 'new-password' });
+  U.modal('修改密码', h('div', { class: 'col', style: { gap: '14px' } },
+    U.field('当前密码', current), U.field('新密码（至少 6 位）', next), U.field('再次输入新密码', repeat)), {
+    actions: (close) => [U.btn('取消', { tone: 'ghost', onClick: close }), U.btn('保存', {
+      onClick: async () => {
+        if (next.value !== repeat.value) return fail('两次新密码输入不一致');
+        try {
+          await api.put('/api/auth/password', { current_password: current.value, new_password: next.value });
+          close(); reset(); router.navigate('/login'); toast('密码已修改，请重新登录');
+        } catch (e) { fail(e.message); }
+      },
+    })],
+  });
+}
+
 //: 当前打开的用户菜单（点第二下要能收起来，所以记住引用）
 let userMenuEl = null;
 
@@ -297,6 +316,7 @@ function openUserMenu(e) {
           onclick: () => { close(); openMyProfile(); },
         }, '我的资料')
       : null,
+    h('button', { class: 'btn btn--ghost btn--block', onclick: () => { close(); openPassword(); } }, '修改密码'),
     h('button', { class: 'btn btn--ghost btn--block', style: { marginTop: '6px' }, onclick: () => { close(); router.navigate('/'); } }, '返回首页'),
     h('button', {
       class: 'btn btn--danger btn--block',
@@ -588,7 +608,7 @@ async function boot() {
       state.user = me.user;
       state.courses = me.courses || [];
       state.peerPending = me.peer_pending || 0;
-      state.courseId = state.courseId || (state.courses[0] && state.courses[0].id) || null;
+      state.courseId = state.courses.some((c) => c.id === state.courseId) ? state.courseId : ((state.courses[0] && state.courses[0].id) || null);
       save();
     } catch (e) {
       // 令牌失效（或演示模式下会话未恢复）时统一退回登录页

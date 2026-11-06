@@ -158,8 +158,12 @@ def reliability_em(
     """
     by_sub: dict[int, list[tuple[int, float]]] = defaultdict(list)
     by_rev: dict[int, list[tuple[int, float]]] = defaultdict(list)
+    manual = {}
     for r in reviews:
         sid, rid, sc = r["submission_id"], r["reviewer_id"], float(r["score"])
+        manual[rid] = max(0.0, float(r.get("weight", 1.0)))
+        if manual[rid] == 0:
+            continue
         by_sub[sid].append((rid, sc))
         by_rev[rid].append((sid, sc))
     if not by_sub:
@@ -182,14 +186,14 @@ def reliability_em(
             n_i = len(items)
             b[rid] = (n_i / (n_i + lam_b)) * (num / n_i)
         # 偏差中心化，避免与 s_j 的整体平移不可辨识
-        mean_b = sum(b.values()) / len(b)
+        mean_b = sum(b[rid] * manual[rid] for rid in b) / sum(manual[rid] for rid in b)
         for rid in b:
             b[rid] -= mean_b
         # --- M 步 2：更新作业真实分 s_j ---
         new_s = {}
         for sid, items in by_sub.items():
-            num = sum(w[rid] * (sc - b[rid]) for rid, sc in items)
-            den = sum(w[rid] for rid, _sc in items)
+            num = sum(w[rid] * manual[rid] * (sc - b[rid]) for rid, sc in items)
+            den = sum(w[rid] * manual[rid] for rid, _sc in items)
             new_s[sid] = num / den if den > 0 else s[sid]
         delta = max(abs(new_s[sid] - s[sid]) for sid in new_s)
         s = new_s
@@ -259,6 +263,8 @@ def aggregate(
     返回 ``{"scores": {...}, "detail": {...}}``，``detail`` 中保存偏差 / 可信度
     / 残差等可用于异常检测与可视化的中间量。
     """
+    reviews = [r for r in reviews if float(r.get("weight", 1.0)) > 0]
+    manual = {r["reviewer_id"]: float(r.get("weight", 1.0)) for r in reviews}
     by_sub: dict[int, list[tuple[int, float]]] = defaultdict(list)
     for r in reviews:
         by_sub[r["submission_id"]].append((r["reviewer_id"], float(r["score"])))
@@ -278,7 +284,7 @@ def aggregate(
     elif method == "weighted_mean":
         weights = prior_weights or {}
         for sid, items in by_sub.items():
-            ws = [max(0.05, weights.get(rid, 1.0)) for rid, _ in items]
+            ws = [max(0.0, weights.get(rid, 1.0)) * manual.get(rid, 1.0) for rid, _ in items]
             out[sid] = weighted_mean([sc for _r, sc in items], ws)
     elif method == "trimmed_mean":
         for sid, items in by_sub.items():

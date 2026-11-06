@@ -344,7 +344,9 @@ def main() -> int:
     if assigns:
         check("作业详情（教师）", f"/api/assignments/{assigns[0]['id']}", role="teacher",
               probe=lambda p: d(p, "data", "problems") is not None)
-        check("作业详情（学生）", f"/api/assignments/{assigns[0]['id']}", role="student")
+        visible = [a for a in assigns if a.get("status") != "draft"]
+        if visible:
+            check("作业详情（学生）", f"/api/assignments/{visible[0]['id']}", role="student")
 
     temp_assignment = None
     if not READONLY and temp_problem:
@@ -355,6 +357,7 @@ def main() -> int:
             "新建作业", "/api/assignments", "POST",
             {"title": f"[审计] 作业 {STAMP}", "description": "功能审计临时作业",
              "type": "mixed", "due_at": "2030-01-01 23:59:00", "status": "published",
+             "review_due_at": "2030-01-02 23:59:00",
              "peer_review": 1, "reviews_per_submission": 1, "max_load": 1,
              "problem_ids": ids},
             probe=lambda p: p.get("data", {}).get("id"),
@@ -569,10 +572,10 @@ def main() -> int:
                     break
             if rv:
                 role, al = rv
-                check("获取匿名评审任务", f"/api/reviews/task/{al['id']}", role=role,
+                task = check("获取匿名评审任务", f"/api/reviews/task/{al['id']}", role=role,
                       probe=lambda p: d(p, "data", "content") is not None)
                 check("提交评审", f"/api/reviews/{al['id']}", "POST",
-                      {"scores": {"idea": 24, "complexity": 20, "correctness": 20, "writing": 16},
+                      {"scores": {r["key"]: float(r["max"]) * .8 for r in d(task, "data", "rubric", default=[])},
                        "comment": "结构清晰，复杂度推导完整，建议补充边界情况的讨论。",
                        "duration_sec": 420}, role=role, probe=lambda p: p.get("ok"))
             else:
@@ -582,7 +585,8 @@ def main() -> int:
         check("查看评分结果", f"/api/assignments/{aid}/review-results", role="teacher",
               probe=lambda p: isinstance(p.get("data"), list))
         if allocs:
-            al0 = allocs[0]
+            refreshed = d(call(f"/api/assignments/{aid}/allocations", role="teacher")[1], "data", "allocations", default=[])
+            al0 = next(a for a in refreshed if a["status"] != "done")
             check("教师手工调整评审人（先移除再补回）",
                   f"/api/assignments/{aid}/allocation/adjust", "POST",
                   {"problem_id": al0["problem_id"], "author_id": al0["author_id"],
@@ -794,7 +798,7 @@ def main() -> int:
                         f"题目 {len(s_probs)} 道、作业 {len(s_asg)} 个")
 
             try:
-                db_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                db_path = os.environ.get("AJP_DB") or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                                        "backend", "data", "platform.db")
                 conn = sqlite3.connect(db_path)
                 conn.execute("DELETE FROM course_members WHERE course_id=?", (t_cid,))

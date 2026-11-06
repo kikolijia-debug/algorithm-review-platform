@@ -389,12 +389,17 @@ export function renderAssignmentDetail({ a, progress, allocs, results }) {
         U.btn('重测全部提交', {
           tone: 'ghost', size: 'sm', icon: U.icon.refresh,
           onClick: async () => {
-            const yes = await confirmDialog({ title: '重测全部提交', message: '将对本次作业的前 80 条提交重新编译评测（可能耗时 1-2 分钟），已记录的成绩会被覆盖。', confirmText: '开始重测' });
+            const yes = await confirmDialog({ title: '重测全部提交', message: '将分批重新编译评测本次作业的全部提交，并更新测试点明细，可能需要数分钟。', confirmText: '开始重测' });
             if (!yes) return;
             info('正在重测，请稍候…');
             try {
-              const r = await api.post(`/api/assignments/${a.id}/rejudge`);
-              ok(`重测完成：${r.rejudged} 条，判定变化 ${r.changes.length} 条`);
+              let offset = 0, count = 0, changes = 0, failures = 0, remaining;
+              do {
+                const r = await api.post(`/api/assignments/${a.id}/rejudge`, { offset });
+                count += r.rejudged; changes += r.changes.length; failures += (r.failed || []).length;
+                offset = r.next_offset; remaining = r.remaining;
+              } while (remaining > 0);
+              ok(`重测完成：${count} 条，判定变化 ${changes} 条，失败 ${failures} 条`);
               router.resolve();
             } catch (e) { fail(e.message); }
           },
@@ -579,7 +584,7 @@ async function openStudentSubmission(row, problems, a) {
           p.type !== 'programming'
             ? U.btn('查看主观题作答', {
                 tone: 'soft', size: 'xs',
-                onClick: () => openSubjectiveDrawer(row.user_id, p.id),
+                onClick: () => openSubjectiveDrawer(row.user_id, p.id, a.id),
               })
             : null,
           !c.submitted ? h('span', { class: 'small muted' }, '该同学没有提交这道题') : null)
@@ -596,9 +601,9 @@ async function openStudentSubmission(row, problems, a) {
   return drawer;
 }
 
-async function openSubjectiveDrawer(userId, problemId) {
+async function openSubjectiveDrawer(userId, problemId, assignmentId) {
   try {
-    const rows = await api.get('/api/subjective', { problem_id: problemId });
+    const rows = await api.get('/api/subjective', { problem_id: problemId, assignment_id: assignmentId });
     const mine = (rows || []).find((r) => r.user_id === userId);
     if (!mine) return fail('没有找到这道题的主观题作答');
     const detail = await api.get('/api/subjective/' + mine.id);

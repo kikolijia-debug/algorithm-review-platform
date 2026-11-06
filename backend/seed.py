@@ -687,11 +687,12 @@ class Seeder:
                     "SELECT * FROM allocations WHERE assignment_id=? AND problem_id=?",
                     (aid, prob["id"]))):
                 a, r = al["author_id"], al["reviewer_id"]
+                sub = best.get(a)
+                db.ex("UPDATE allocations SET submission_id=? WHERE id=?", (sub["id"] if sub else None, al["id"]))
                 # 留出约 15% 的分配不评，模拟「还有同学没完成互评」，
                 # 这样学生端能真实看到待完成的代码互评任务
                 if rng.random() < 0.15:
                     continue
-                sub = best.get(a)
                 auto = float(sub["score"]) if sub else 40.0
                 style = 62 + 13 * abilities[a] + rng.gauss(0, 6)
                 total = max(0.0, min(100.0, 0.5 * auto + 0.5 * style + bias[r] + rng.gauss(0, noise[r])))

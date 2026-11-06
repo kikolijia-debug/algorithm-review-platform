@@ -31,6 +31,9 @@ function qs(params) {
 }
 
 export async function api(path, { method = 'GET', body, query } = {}) {
+  if (state.courseId && !/^\/api\/(auth|courses|health|meta|stats)(\/|$)/.test(path)) {
+    query = { course_id: state.courseId, ...query };
+  }
   if (state.demo) {
     return demoApi.request(path, { method, body, query });
   }

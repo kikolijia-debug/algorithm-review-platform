@@ -363,7 +363,19 @@ async function openMembers(cls, allClasses, onChanged) {
           { title: '最近登录', width: '150px', render: (s) => (s.last_login ? U.timeAgo(s.last_login) : '从未') },
           {
             title: '', width: '90px',
-            render: (s) => U.btn('移出', {
+            render: (s) => h('div', { class: 'row', style: { gap: '4px' } }, U.btn('重置密码', {
+              tone: 'plain', size: 'xs', onClick: () => {
+                const input = U.input({ type: 'password', placeholder: '新密码，至少 6 位' });
+                U.modal('重置 ' + s.name + ' 的密码', U.field('新密码', input), {
+                  actions: (close) => [U.btn('取消', { tone: 'ghost', onClick: close }), U.btn('保存', {
+                    onClick: async () => {
+                      try { await api.post(`/api/users/${s.id}/reset-password`, { new_password: input.value }); close(); ok('密码已重置，原登录状态已失效'); }
+                      catch (e) { fail(e.message); }
+                    },
+                  })],
+                });
+              },
+            }), U.btn('移出', {
               tone: 'plain', size: 'xs',
               onClick: async () => {
                 try {
@@ -376,7 +388,7 @@ async function openMembers(cls, allClasses, onChanged) {
                   fail(e.message);
                 }
               },
-            }),
+            })),
           },
         ],
         data.students,

@@ -345,6 +345,13 @@ def get_conn() -> sqlite3.Connection:
     return conn
 
 
+def close_conn() -> None:
+    conn = getattr(_local, "conn", None)
+    if conn is not None:
+        conn.close()
+        _local.conn = None
+
+
 def init_db() -> None:
     conn = get_conn()
     conn.executescript(SCHEMA)
@@ -402,6 +409,31 @@ def migrate(conn: sqlite3.Connection) -> None:
         if col not in user_cols:
             conn.execute(f"ALTER TABLE users ADD COLUMN {col} TEXT")
     conn.commit()
+
+    for table, column, ddl in (("experiments", "course_id", "INTEGER"),
+                               ("assignments", "review_round", "INTEGER DEFAULT 1"),
+                               ("allocations", "started_at", "TEXT")):
+        if column not in [r["name"] for r in conn.execute(f"PRAGMA table_info({table})")]:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+    conn.execute("""CREATE TABLE IF NOT EXISTS review_round_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, assignment_id INTEGER NOT NULL,
+        round INTEGER NOT NULL, snapshot TEXT NOT NULL, archived_by INTEGER,
+        archived_at TEXT NOT NULL)""")
+    conn.commit()
+
+    if "submission_id" not in [r["name"] for r in conn.execute("PRAGMA table_info(allocations)")]:
+        conn.execute("ALTER TABLE allocations ADD COLUMN submission_id INTEGER")
+        # 只迁移旧轮次：历史代码互评原本允许引用练习，固定其来源后保留可读性。
+        # 不回填 submissions.assignment_id，因此历史练习不会计入当前作业进度。
+        conn.execute("""UPDATE allocations SET submission_id=COALESCE((
+            SELECT s.id FROM submissions s WHERE s.problem_id=allocations.problem_id
+            AND s.user_id=allocations.author_id AND s.assignment_id=allocations.assignment_id
+            ORDER BY (s.verdict='Accepted') DESC,s.score DESC,s.id DESC LIMIT 1),(
+            SELECT s.id FROM submissions s WHERE s.problem_id=allocations.problem_id
+            AND s.user_id=allocations.author_id
+            ORDER BY (s.verdict='Accepted') DESC,s.score DESC,s.id DESC LIMIT 1))
+            WHERE problem_id IN (SELECT id FROM problems WHERE type='programming')""")
+        conn.commit()
 
     # 仅在 classes 表为空时反向补齐，避免覆盖教师后来手工调整的结果
     if conn.execute("SELECT COUNT(*) c FROM classes").fetchone()["c"]:

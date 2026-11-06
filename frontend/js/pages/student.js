@@ -754,6 +754,7 @@ function reviewData(task) {
   return h(
     'div',
     { class: 'review-data' },
+      task.uses_historical_submission ? U.note('本轮沿用升级前选定的历史代码提交；该记录不计入本次作业提交进度。') : null,
     h(
       'div',
       { class: 'stat-row' },
@@ -1095,7 +1096,7 @@ export function renderReviewTask({ task, startedAt }) {
         range);
     })),
     U.field('文字意见', U.textarea({
-      placeholder: '请指出做得好的地方，以及可以改进的具体位置（至少 20 字）',
+      placeholder: '请指出做得好的地方，以及可以改进的具体位置（至少 10 字）',
       value: comment,
       oninput: (e) => { comment = e.target.value; },
       style: { minHeight: '120px' },
@@ -1113,7 +1114,7 @@ export function renderReviewTask({ task, startedAt }) {
             await api.post('/api/reviews/' + task.allocation_id, {
               scores,
               comment,
-              duration_sec: Math.max(20, (Date.now() - new Date(startedAt).getTime()) / 1000),
+              duration_sec: Math.max(0, (Date.now() - new Date(startedAt).getTime()) / 1000),
               started_at: startedAt.replace('T', ' ').slice(0, 19),
             });
             ok(`评审已提交（${Math.round(total * 10) / 10} 分）`);
@@ -1288,7 +1289,10 @@ function eventLabel(t) {
 /* ================================================ 题目详情（共用加载） */
 
 export async function loadProblem(ctx) {
-  const p = await api.get('/api/problems/' + ctx.params.id);
+  let p = await api.get('/api/problems/' + ctx.params.id, { assignment_id: ctx.query && ctx.query.assignment_id });
+  if (p.type !== 'programming' && !p.assignment_id && (p.assignments || []).length === 1) {
+    p = await api.get('/api/problems/' + ctx.params.id, { assignment_id: p.assignments[0].id });
+  }
   return p;
 }
 
@@ -1347,7 +1351,7 @@ export function renderStudentAssignment({ a, mine }) {
           U.tagList(p.topics, 'soft'),
           h('div', { class: 'problem-card__foot' },
             h('span', { class: 'small muted' }, p.type === 'programming' ? '自动评测' : '互评'),
-            h('a', { class: 'btn btn--soft btn--sm', href: `#/problem/${p.id}` },
+            h('a', { class: 'btn btn--soft btn--sm', href: `#/problem/${p.id}?assignment_id=${a.id}` },
               solved(p) ? '再看一遍' : '去完成'))
         ))),
     a.peer_review

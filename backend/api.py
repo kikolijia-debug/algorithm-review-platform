@@ -13,6 +13,8 @@
 from __future__ import annotations
 
 import time
+import math
+from functools import wraps
 from datetime import datetime
 
 from . import db, judge as J
@@ -28,8 +30,21 @@ ROUTES: list[tuple[str, str, callable, str]] = []
 
 def route(method: str, path: str, auth: str = "user"):
     def deco(fn):
-        ROUTES.append((method.upper(), path, fn, auth))
-        return fn
+        @wraps(fn)
+        def checked(ctx):
+            from .access import APIError, authorize, student_response
+            try:
+                authorize(path, auth, ctx)
+                status, payload = fn(ctx)
+                if ctx.get("user") and not is_teacher(ctx["user"]) and status == 200:
+                    payload = student_response(payload, ctx["user"])
+                return status, payload
+            except APIError as exc:
+                return err(exc.status, exc.message)
+            except (ValueError, TypeError, OverflowError):
+                return err(400, "请求参数格式不正确")
+        ROUTES.append((method.upper(), path, checked, auth))
+        return checked
 
     return deco
 
@@ -91,9 +106,9 @@ def public_user(u):
     }
 
 
-def anon_label(user_id: int) -> str:
-    """把学生 id 映射成稳定匿名编号（可追溯但对评审者不可识别）。"""
-    return "匿名#%d" % (1000 + (int(user_id) * 7919) % 8999)
+def anon_label(user_id: int, aid=0, round_no=1) -> str:
+    from .access import anonymous
+    return anonymous(user_id, aid, round_no)
 
 
 # ---------------------------------------------------------------------------
@@ -128,6 +143,7 @@ def active_course_id(ctx, explicit=None) -> int | None:
     * 否则取该用户的第一门课；没有任何课程时返回 ``None``（由调用方给出空数据/引导）。
     """
     mine = user_course_ids(ctx.get("user"))
+    explicit = explicit or ctx.get("query", {}).get("course_id") or ctx.get("body", {}).get("course_id")
     if explicit:
         try:
             cid = int(explicit)
@@ -135,7 +151,9 @@ def active_course_id(ctx, explicit=None) -> int | None:
             cid = None
         if cid and cid in mine:
             return cid
-    return mine[0] if mine else None
+        from .access import APIError
+        raise APIError(403, "无权访问该课程")
+    return mine[0] if mine else 0
 
 
 def gen_invite_code(prefix: str = "CLS") -> str:
@@ -316,6 +334,42 @@ def api_update_profile(ctx):
 # ---------------------------------------------------------------------------
 
 
+@route("PUT", "/api/auth/password")
+def api_change_password(ctx):
+    b = ctx["body"]
+    u = db.q1("SELECT * FROM users WHERE id=?", (ctx["user"]["id"],))
+    if not verify_password(str(b.get("current_password") or ""), u["password"], u["salt"]):
+        return err(400, "当前密码不正确")
+    pwd = str(b.get("new_password") or "")
+    if len(pwd) < 6 or len(pwd) > 128:
+        return err(400, "新密码长度应为 6 至 128 位")
+    hashed, salt = hash_password(pwd)
+    conn = db.get_conn()
+    with conn:
+        conn.execute("UPDATE users SET password=?,salt=? WHERE id=?", (hashed, salt, u["id"]))
+        conn.execute("DELETE FROM sessions WHERE user_id=?", (u["id"],))
+    return ok({"login_required": True})
+
+
+@route("POST", "/api/users/{id}/reset-password", "teacher")
+def api_reset_password(ctx):
+    u = db.q1("SELECT * FROM users WHERE id=?", (ctx["params"]["id"],))
+    if not u or u["role"] != "student":
+        return err(400, "只能重置本课程学生的密码")
+    pwd = str(ctx["body"].get("new_password") or "")
+    if not 6 <= len(pwd) <= 128:
+        return err(400, "新密码长度应为 6 至 128 位")
+    hashed, salt = hash_password(pwd)
+    conn = db.get_conn()
+    with conn:
+        conn.execute("UPDATE users SET password=?,salt=? WHERE id=?", (hashed, salt, u["id"]))
+        conn.execute("DELETE FROM sessions WHERE user_id=?", (u["id"],))
+        conn.execute("INSERT INTO events(user_id,course_id,type,payload,created_at) VALUES(?,?,?,?,?)",
+                     (ctx["user"]["id"], active_course_id(ctx), "password_reset",
+                      db.jdumps({"user_id": u["id"]}), db.now()))
+    return ok({"id": u["id"], "login_required": True})
+
+
 @route("GET", "/api/meta", "public")
 def api_meta(ctx):
     from . import experiments as EX
@@ -423,6 +477,8 @@ def api_course_join(ctx):
     if not code:
         return err(400, "请输入老师提供的邀请码")
     u = ctx["user"]
+    if is_teacher(u):
+        return err(403, "学生邀请码不能授予教学权限，请使用本人开设的课程")
     course = db.q1("SELECT * FROM courses WHERE UPPER(invite_code)=?", (code,))
     cls = db.q1("SELECT * FROM classes WHERE UPPER(invite_code)=?", (code,))
     if not course and cls:
@@ -450,18 +506,12 @@ def api_course_join(ctx):
 @route("GET", "/api/users", "teacher")
 def api_users(ctx):
     role = ctx["query"].get("role")
-    cid = active_course_id(ctx, ctx["query"].get("course_id"))
-    if cid and ctx["query"].get("in_course"):
-        rows = uid_rows(
-            "SELECT u.* FROM course_members m JOIN users u ON u.id=m.user_id "
-            "WHERE m.course_id=? AND (? IS NULL OR u.role=?) ORDER BY u.class_name,u.student_no,u.id",
-            (cid, role, role))
-    elif role:
-        rows = uid_rows("SELECT * FROM users WHERE role=? ORDER BY id", (role,))
-    else:
-        rows = uid_rows("SELECT * FROM users ORDER BY id")
+    cid = active_course_id(ctx)
+    rows = uid_rows(
+        "SELECT u.* FROM course_members m JOIN users u ON u.id=m.user_id "
+        "WHERE m.course_id=? AND (? IS NULL OR u.role=?) ORDER BY u.class_name,u.student_no,u.id",
+        (cid, role, role))
     return ok([public_user(r) for r in rows])
-
 
 @route("POST", "/api/users", "teacher")
 def api_user_create(ctx):
@@ -578,9 +628,8 @@ def api_problems(ctx):
     sql = "SELECT * FROM problems WHERE 1=1"
     args = []
     cid = active_course_id(ctx, q.get("course_id"))
-    if cid:
-        sql += " AND course_id=?"
-        args.append(cid)
+    sql += " AND course_id=?"
+    args.append(cid)
     if q.get("type"):
         sql += " AND type=?"
         args.append(q["type"])
@@ -615,7 +664,10 @@ def api_problems(ctx):
         st = db.q1(
             "SELECT COUNT(DISTINCT user_id) c FROM submissions WHERE problem_id=?", (p["id"],))["c"]
         p["student_count"] = st
-        p["pass_rate"] = round(p["ac_count"] / st, 4) if st else 0.0
+        p["accepted_students"] = db.q1(
+            "SELECT COUNT(DISTINCT user_id) c FROM submissions WHERE problem_id=? AND verdict='Accepted'",
+            (p["id"],))["c"]
+        p["pass_rate"] = round(p["accepted_students"] / st, 4) if st else 0.0
     return ok(rows)
 
 
@@ -652,6 +704,19 @@ def api_problem(ctx):
     d["solved"] = bool(db.q1(
         "SELECT id FROM submissions WHERE problem_id=? AND user_id=? AND verdict='Accepted' LIMIT 1",
         (pid, u)))
+    choices = uid_rows(
+        "SELECT a.id,a.title,a.status,a.start_at,a.due_at FROM assignments a "
+        "JOIN assignment_problems ap ON ap.assignment_id=a.id WHERE ap.problem_id=? "
+        + ("" if is_teacher(ctx["user"]) else "AND a.status<>'draft' ") + "ORDER BY a.id DESC", (pid,))
+    d["assignments"] = choices
+    aid = ctx["query"].get("assignment_id")
+    if aid:
+        if not any(int(x["id"]) == int(aid) for x in choices):
+            return err(400, "该题目不属于所选作业")
+        d["assignment_id"] = int(aid)
+        original = db.q1("SELECT * FROM subjective_submissions WHERE assignment_id=? AND problem_id=? "
+                          "AND user_id=?", (aid, pid, u))
+        d["my_subjective"] = (dict(original, content=jload(original["content"], {})) if original else None)
     return ok(d)
 
 
@@ -803,25 +868,25 @@ def assignment_detail(aid, user):
         p["rubric"] = jload(p["rubric"], [])
         p["samples"] = jload(p["samples"], [])
         best = db.q1(
-            "SELECT MAX(score) s FROM submissions WHERE problem_id=? AND user_id=?",
-            (p["id"], user["id"]))
+            "SELECT MAX(score) s FROM submissions WHERE assignment_id=? AND problem_id=? AND user_id=?",
+            (aid, p["id"], user["id"]))
         p["my_best"] = best["s"] if best else None
         p["my_tries"] = db.q1(
-            "SELECT COUNT(*) c FROM submissions WHERE problem_id=? AND user_id=?",
-            (p["id"], user["id"]))["c"]
+            "SELECT COUNT(*) c FROM submissions WHERE assignment_id=? AND problem_id=? AND user_id=?",
+            (aid, p["id"], user["id"]))["c"]
         last = db.q1(
-            "SELECT verdict FROM submissions WHERE problem_id=? AND user_id=? ORDER BY id DESC LIMIT 1",
-            (p["id"], user["id"]))
+            "SELECT verdict FROM submissions WHERE assignment_id=? AND problem_id=? AND user_id=? ORDER BY id DESC LIMIT 1",
+            (aid, p["id"], user["id"]))
         p["my_verdict"] = last["verdict"] if last else None
         p["n_submit"] = db.q1(
-            "SELECT COUNT(DISTINCT user_id) c FROM submissions WHERE problem_id=?", (p["id"],))["c"]
+            "SELECT COUNT(DISTINCT user_id) c FROM submissions WHERE assignment_id=? AND problem_id=?", (aid, p["id"]))["c"]
         p["ac_count"] = db.q1(
-            "SELECT COUNT(DISTINCT user_id) c FROM submissions WHERE problem_id=? "
-            "AND verdict='Accepted'", (p["id"],))["c"]
+            "SELECT COUNT(DISTINCT user_id) c FROM submissions WHERE assignment_id=? AND problem_id=? "
+            "AND verdict='Accepted'", (aid, p["id"],))["c"]
         if p["type"] != "programming":
-            p["my_subjective"] = db.q1(
+            p["my_subjective"] = db.row2dict(db.q1(
                 "SELECT id,status,final_score FROM subjective_submissions WHERE assignment_id=? "
-                "AND problem_id=? AND user_id=?", (aid, p["id"], user["id"]))
+                "AND problem_id=? AND user_id=?", (aid, p["id"], user["id"])))
             p["n_subjective"] = db.q1(
                 "SELECT COUNT(*) c FROM subjective_submissions WHERE assignment_id=? "
                 "AND problem_id=?", (aid, p["id"]))["c"]
@@ -840,9 +905,10 @@ def api_assignments(ctx):
     sql = "SELECT * FROM assignments WHERE 1=1"
     args = []
     cid = active_course_id(ctx, q.get("course_id"))
-    if cid:
-        sql += " AND course_id=?"
-        args.append(cid)
+    sql += " AND course_id=?"
+    args.append(cid)
+    if not is_teacher(ctx["user"]):
+        sql += " AND status<>'draft'"
     sql += " ORDER BY id DESC"
     rows = uid_rows(sql, args)
     u = ctx["user"]
@@ -933,6 +999,12 @@ def notify_assignment_published(aid: int) -> int | None:
 @route("POST", "/api/assignments", "teacher")
 def api_assignment_create(ctx):
     b = ctx["body"]
+    cid = active_course_id(ctx)
+    if not cid:
+        return err(400, "请先创建课程")
+    for pid in b.get("problem_ids") or []:
+        if not db.q1("SELECT id FROM problems WHERE id=? AND course_id=?", (pid, cid)):
+            return err(400, "作业只能包含本课程题目")
     aid = db.ex(
         "INSERT INTO assignments(course_id,title,description,type,start_at,due_at,review_due_at,"
         "reviews_per_submission,max_load,aggregation_method,allocate_method,params,status,peer_review,"
@@ -1005,6 +1077,18 @@ def api_assignment_delete(ctx):
 # ---------------------------------------------------------------------------
 
 
+def save_test_results(sid, result):
+    conn = db.get_conn()
+    with conn:
+        conn.execute("DELETE FROM test_results WHERE submission_id=?", (sid,))
+        for r in result.get("results") or []:
+            conn.execute(
+                "INSERT INTO test_results(submission_id,test_case_id,name,verdict,time_ms,memory_kb,"
+                "message,output) VALUES(?,?,?,?,?,?,?,?)",
+                (sid, r.get("test_case_id"), r.get("name"), r.get("verdict"), r.get("time_ms", 0),
+                 r.get("memory_kb", 0), r.get("message", ""), str(r.get("actual") or "")[:1000]))
+
+
 def _problem_cases(pid, only_sample=False):
     sql = "SELECT * FROM test_cases WHERE problem_id=?"
     if only_sample:
@@ -1024,6 +1108,8 @@ def api_submit(ctx):
         return err(404, "题目不存在")
     if not code.strip():
         return err(400, "代码不能为空")
+    from .access import validate_submission
+    validate_submission(ctx, pid, b.get("assignment_id"))
     warn = J.static_check(code, lang)
     cases = _problem_cases(pid)
     started = time.time()
@@ -1047,6 +1133,7 @@ def api_submit(ctx):
             None,
         ),
     )
+    save_test_results(sid, res)
     tries = db.q1(
         "SELECT COUNT(*) c FROM submissions WHERE problem_id=? AND user_id=?",
         (pid, ctx["user"]["id"]))["c"]
@@ -1070,6 +1157,8 @@ def api_run(ctx):
     p = db.q1("SELECT * FROM problems WHERE id=?", (pid,))
     if not p:
         return err(404, "题目不存在")
+    if p["type"] != "programming":
+        return err(400, "该题目不是编程题")
     if b.get("custom_input") is not None and b.get("custom_input") != "":
         cases = [{"id": -1, "name": "自定义输入", "input": b["custom_input"],
                   "expected": b.get("expected") or "", "score": 1}]
@@ -1098,7 +1187,7 @@ def api_submissions(ctx):
     if q.get("assignment_id"):
         sql += " AND s.assignment_id=?"
         args.append(q["assignment_id"])
-    if q.get("user_id"):
+    if q.get("user_id") and is_teacher(ctx["user"]):
         sql += " AND s.user_id=?"
         args.append(q["user_id"])
     elif not is_teacher(ctx["user"]):
@@ -1109,9 +1198,8 @@ def api_submissions(ctx):
         args.append(q["verdict"])
     # 默认只显示当前账号所在课程的数据，避免跨课程串数据
     cid = active_course_id(ctx, q.get("course_id"))
-    if cid:
-        sql += " AND p.course_id=?"
-        args.append(cid)
+    sql += " AND p.course_id=?"
+    args.append(cid)
     sql += " ORDER BY s.id DESC LIMIT ?"
     args.append(int(q.get("limit") or 100))
     rows = uid_rows(sql, args)
@@ -1142,8 +1230,8 @@ def api_submission(ctx):
         reviews = uid_rows(
             "SELECT r.*, u.name AS reviewer_name FROM reviews r "
             "JOIN users u ON u.id=r.reviewer_id "
-            "WHERE r.problem_id=? AND r.author_id=?",
-            (d["problem_id"], d["user_id"]),
+            "WHERE r.assignment_id=? AND r.problem_id=? AND r.author_id=?",
+            (d["assignment_id"], d["problem_id"], d["user_id"]),
         )
         a = (db.q1("SELECT review_due_at FROM assignments WHERE id=?",
                    (d["assignment_id"],)) if d["assignment_id"] else None)
@@ -1152,7 +1240,7 @@ def api_submission(ctx):
         if teacher or published:
             d["peer_reviews"] = [
                 {
-                    "reviewer": (r["reviewer_name"] if teacher else anon_label(r["reviewer_id"])),
+                    "reviewer": (r["reviewer_name"] if teacher else anon_label(r["reviewer_id"], r["assignment_id"])),
                     "total": r["total"], "scores": jload(r["scores"], {}),
                     "comment": r["comment"], "duration_sec": r["duration_sec"],
                     "submitted_at": r["submitted_at"],
@@ -1199,28 +1287,27 @@ def api_rejudge(ctx):
 @route("POST", "/api/assignments/{id}/rejudge", "teacher")
 def api_rejudge_assignment(ctx):
     aid = ctx["params"]["id"]
-    subs = uid_rows("SELECT * FROM submissions WHERE assignment_id=? ORDER BY id", (aid,))
-    done = []
-    for s in subs[:80]:
-        p = db.q1("SELECT * FROM problems WHERE id=?", (s["problem_id"],))
-        res = J.judge_submission(
-            s["source_code"], s["language"], _problem_cases(s["problem_id"]),
-            p["time_limit_ms"], p["memory_limit_mb"], p["score"])
-        db.ex(
-            "UPDATE submissions SET verdict=?,score=?,time_ms=?,memory_kb=? WHERE id=?",
-            (res["verdict"], res["score"], res.get("time_ms", 0), res.get("memory_kb", 0), s["id"]))
-        done.append({"id": s["id"], "before": s["verdict"], "after": res["verdict"]})
-    return ok({"rejudged": len(done), "changes": [d for d in done if d["before"] != d["after"]]})
-
+    offset = max(0, int((ctx["body"] or {}).get("offset", 0)))
+    subs = uid_rows("SELECT id,verdict FROM submissions WHERE assignment_id=? ORDER BY id", (aid,))
+    done, failed = [], []
+    for sub in subs[offset:offset + 80]:
+        status, payload = api_rejudge(dict(ctx, params={"id": str(sub["id"])}))
+        if status == 200:
+            done.append({"id": sub["id"], "before": sub["verdict"], "after": payload["data"]["verdict"]})
+        else:
+            failed.append({"id": sub["id"], "error": payload.get("error")})
+    next_offset = min(len(subs), offset + 80)
+    return ok({"rejudged": len(done), "failed": failed, "total": len(subs),
+               "remaining": len(subs) - next_offset, "next_offset": next_offset,
+               "changes": [d for d in done if d["before"] != d["after"]]})
 
 @route("GET", "/api/submissions/stats/overview", "teacher")
 def api_submission_stats(ctx):
     q = ctx["query"]
     where, args = "WHERE 1=1", []
     cid = active_course_id(ctx, q.get("course_id"))
-    if cid:
-        where += " AND p.course_id=?"
-        args.append(cid)
+    where += " AND p.course_id=?"
+    args.append(cid)
     if q.get("assignment_id"):
         where += " AND s.assignment_id=?"
         args.append(q["assignment_id"])
@@ -1245,12 +1332,16 @@ def api_subjective_submit(ctx):
     content = b.get("content")
     if not aid or not pid:
         return err(400, "缺少作业或题目")
+    from .access import validate_submission
+    validate_submission(ctx, pid, aid, subjective=True)
+    if not isinstance(content, dict) or not any(str(v).strip() for v in content.values()):
+        return err(400, "作答内容不能为空")
     existed = db.q1(
         "SELECT * FROM subjective_submissions WHERE assignment_id=? AND problem_id=? AND user_id=?",
         (aid, pid, ctx["user"]["id"]))
     if existed:
         db.ex(
-            "UPDATE subjective_submissions SET content=?, status='submitted', updated_at=? WHERE id=?",
+            "UPDATE subjective_submissions SET content=?, status='submitted', final_score=NULL, methods='{}', updated_at=? WHERE id=?",
             (db.jdumps(content or {}), db.now(), existed["id"]))
         sid = existed["id"]
     else:
@@ -1274,7 +1365,8 @@ def api_subjective_list(ctx):
         "a.title AS assignment_title FROM subjective_submissions ss "
         "JOIN problems p ON p.id=ss.problem_id JOIN assignments a ON a.id=ss.assignment_id WHERE 1=1"
     )
-    args = []
+    args = [active_course_id(ctx)]
+    sql += " AND a.course_id=?"
     if q.get("assignment_id"):
         sql += " AND ss.assignment_id=?"
         args.append(q["assignment_id"])
@@ -1330,7 +1422,7 @@ def api_subjective_detail(ctx):
         d["reviews"] = [
             {"id": r["id"], "total": r["total"], "scores": jload(r["scores"], {}),
              "comment": r["comment"], "duration_sec": r["duration_sec"],
-             "reviewer": anon_label(r["reviewer_id"])}
+             "reviewer": anon_label(r["reviewer_id"], d["assignment_id"])}
             for r in reviews
         ]
     a = db.q1("SELECT review_due_at,due_at FROM assignments WHERE id=?", (d["assignment_id"],))
@@ -1344,7 +1436,9 @@ def api_subjective_detail(ctx):
 
 
 def _load_review_context(aid, pid=None):
-    sql = ("SELECT r.*, u.name AS reviewer_name,u.class_name FROM reviews r "
+    sql = ("SELECT r.*,u.name AS reviewer_name,u.class_name,al.weight FROM reviews r "
+           "JOIN allocations al ON al.id=r.allocation_id AND al.assignment_id=r.assignment_id "
+           "AND al.problem_id=r.problem_id AND al.reviewer_id=r.reviewer_id AND al.author_id=r.author_id "
            "JOIN users u ON u.id=r.reviewer_id WHERE r.assignment_id=?")
     args = [aid]
     if pid:
@@ -1387,7 +1481,8 @@ def api_allocate(ctx):
         "SELECT p.* FROM assignment_problems ap JOIN problems p ON p.id=ap.problem_id "
         "WHERE ap.assignment_id=? ORDER BY ap.order_index", (aid,))
     t0 = time.perf_counter()
-    report = []
+    report, plans = [], []
+    round_no = int(a["review_round"] or 1) + 1
     for prob in probs:
         # 主观题以便提交为作者来源；编程题以「有提交记录的学生」为作者来源，
         # 这样代码互评与主观题互评走同一套分配/聚合/异常检测流程。
@@ -1396,9 +1491,9 @@ def api_allocate(ctx):
                 r["user_id"] for r in uid_rows(
                     # 代码互评的对象是「该学生在这道题上的提交」，不限于本作业——
                     # 教师可以对已经练过的题目再组织一轮代码互评
-                    "SELECT DISTINCT user_id FROM submissions WHERE problem_id=? "
+                    "SELECT DISTINCT user_id FROM submissions WHERE assignment_id=? AND problem_id=? "
                     "ORDER BY user_id",
-                    (prob["id"],),
+                    (aid, prob["id"]),
                 )
             ]
         else:
@@ -1420,20 +1515,33 @@ def api_allocate(ctx):
         el = round((time.perf_counter() - t0) * 1000, 2)
         metrics = AS.evaluate_allocation(res.allocations, authors, authors, klass, prev_pairs, k)
         metrics["elapsed_ms"] = el
-        db.ex("DELETE FROM allocations WHERE assignment_id=? AND problem_id=?", (aid, prob["id"]))
-        for (au, rv) in res.allocations:
-            db.ex(
-                "INSERT OR IGNORE INTO allocations(assignment_id,problem_id,author_id,reviewer_id,"
-                "status,round,weight,is_anomaly,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
-                (aid, prob["id"], au, rv, "pending", 1, 1.0, 0, db.now()))
+        plans.extend((aid, prob["id"], au, rv, "pending", round_no, 1.0, 0, db.now())
+                     for au, rv in res.allocations)
         report.append({"problem_id": prob["id"], "problem_title": prob["title"],
                        "method": res.method, "stats": res.stats, "metrics": metrics})
-        db.ex(
-            "INSERT INTO experiments(name,params,result,elapsed_ms,created_at) VALUES(?,?,?,?,?)",
-            ("allocate", db.jdumps({"assignment_id": aid, "problem_id": prob["id"], **b}),
-             db.jdumps({"metrics": metrics, "stats": res.stats}), el, db.now()))
-    # 分配结果先进入「待教师确认」，教师确认后学生才看得到评审任务
-    db.ex("UPDATE assignments SET status='reviewing', allocation_status='draft' WHERE id=?", (aid,))
+    if not plans:
+        return err(400, "没有足够的已提交学生，原有分配与评分已保留")
+    conn = db.get_conn()
+    with conn:
+        snapshot = {table: uid_rows(f"SELECT * FROM {table} WHERE assignment_id=?", (aid,))
+                    for table in ("allocations", "reviews", "anomalies", "subjective_submissions")}
+        conn.execute("INSERT INTO review_round_history(assignment_id,round,snapshot,archived_by,archived_at) "
+                     "VALUES(?,?,?,?,?)", (aid, a["review_round"], db.jdumps(snapshot), ctx["user"]["id"], db.now()))
+        conn.execute("DELETE FROM reviews WHERE assignment_id=?", (aid,))
+        conn.execute("DELETE FROM allocations WHERE assignment_id=?", (aid,))
+        conn.execute("DELETE FROM anomalies WHERE assignment_id=?", (aid,))
+        conn.execute("UPDATE subjective_submissions SET final_score=NULL,methods='{}',status='reviewing' "
+                     "WHERE assignment_id=?", (aid,))
+        conn.execute("UPDATE submissions SET review_score=NULL,review_methods='{}' WHERE assignment_id=?", (aid,))
+        conn.executemany("INSERT INTO allocations(assignment_id,problem_id,author_id,reviewer_id,"
+                         "status,round,weight,is_anomaly,created_at) VALUES(?,?,?,?,?,?,?,?,?)", plans)
+        conn.execute("""UPDATE allocations SET submission_id=(SELECT s.id FROM submissions s
+            WHERE s.assignment_id=allocations.assignment_id AND s.problem_id=allocations.problem_id
+            AND s.user_id=allocations.author_id
+            ORDER BY (s.verdict='Accepted') DESC,s.score DESC,s.id DESC LIMIT 1)
+            WHERE assignment_id=?""", (aid,))
+        conn.execute("UPDATE assignments SET status='reviewing',allocation_status='draft',review_round=? "
+                     "WHERE id=?", (round_no, aid))
     return ok({
         "report": report,
         "elapsed_ms": round((time.perf_counter() - t0) * 1000, 2),
@@ -1488,14 +1596,13 @@ def api_adjust_allocation(ctx):
         return err(404, "找不到该作业的分配记录")
 
     remove_id = b.get("remove_reviewer_id")
+    rows = []
     if remove_id:
         rows = [r for r in mine if int(r["reviewer_id"]) == int(remove_id)]
         if not rows:
             return err(400, "该评审者不在当前分配里")
         if any(r["status"] == "done" for r in rows):
             return err(400, "该评审者已经完成评审，不能直接移除；请改用「重新分配」")
-        for r in rows:
-            db.ex("DELETE FROM allocations WHERE id=?", (r["id"],))
 
     add_id = b.get("add_reviewer_id")
     if add_id:
@@ -1517,10 +1624,18 @@ def api_adjust_allocation(ctx):
             (aid, add_id))["c"]
         if load >= int(a["max_load"] or 4):
             return err(400, "该学生的工作量已达上限 %d 份" % int(a["max_load"] or 4))
-        db.ex(
-            "INSERT OR IGNORE INTO allocations(assignment_id,problem_id,author_id,reviewer_id,"
-            "status,round,weight,is_anomaly,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
-            (aid, problem_id, author_id, add_id, "pending", 1, 1.0, 0, db.now()))
+    if not remove_id and not add_id:
+        return err(400, "请指定需要调整的评审人")
+    conn = db.get_conn()
+    with conn:
+        for r in rows:
+            conn.execute("DELETE FROM allocations WHERE id=?", (r["id"],))
+        if add_id:
+            conn.execute(
+                "INSERT OR IGNORE INTO allocations(assignment_id,problem_id,author_id,reviewer_id,"
+                "status,round,weight,is_anomaly,created_at,submission_id) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                (aid, problem_id, author_id, add_id, "pending", a["review_round"], 1.0, 0, db.now(), mine[0]["submission_id"]))
+        conn.execute("UPDATE assignments SET allocation_status='draft' WHERE id=?", (aid,))
 
     rows = uid_rows(
         "SELECT al.id, al.reviewer_id, u.name AS reviewer_name, u.class_name, al.status "
@@ -1528,7 +1643,6 @@ def api_adjust_allocation(ctx):
         "WHERE al.assignment_id=? AND al.problem_id=? AND al.author_id=? ORDER BY al.id",
         (aid, problem_id, author_id))
     # 教师手工调整过分配 → 必须重新确认发布
-    db.ex("UPDATE assignments SET allocation_status='draft' WHERE id=?", (aid,))
     return ok({
         "assignment_id": aid, "problem_id": problem_id, "author_id": author_id,
         "reviewers": rows, "count": len(rows),
@@ -1576,7 +1690,8 @@ def api_my_reviews(ctx):
         "ORDER BY al.status, al.assignment_id DESC, al.id", (uid,))
     for r in rows:
         r["rubric"] = [x for x in jload(r["rubric"], []) if isinstance(x, dict) and "key" in x]
-        r["author"] = anon_label(r["author_id"])
+        a = db.q1("SELECT review_round FROM assignments WHERE id=?", (r["assignment_id"],))
+        r["author"] = anon_label(r["author_id"], r["assignment_id"], a["review_round"])
         rv = db.q1("SELECT * FROM reviews WHERE allocation_id=?", (r["allocation_id"],))
         r["my_review"] = (
             {"total": rv["total"], "comment": rv["comment"], "scores": jload(rv["scores"], {})}
@@ -1599,6 +1714,8 @@ def api_review_task(ctx):
     # 教师确认发布前，学生看不到评审对象
     if al["allocation_status"] != "confirmed" and not teacher:
         return err(403, "教师尚未确认本轮互评分配，请稍后再试")
+    if not teacher:
+        db.ex("UPDATE allocations SET started_at=COALESCE(started_at,?) WHERE id=?", (db.now(), al["id"]))
     rubric = jload(al["rubric"], [])
     sections = []
     if rubric and isinstance(rubric[0], dict) and "sections" in rubric[0]:
@@ -1608,17 +1725,20 @@ def api_review_task(ctx):
         "assignment_title": al["assignment_title"], "problem_id": al["problem_id"],
         "problem_title": al["problem_title"], "problem_statement": al["statement"],
         "problem_type": al["problem_type"],
-        "author": al["author_id"] if teacher else anon_label(al["author_id"]),
+        "author": al["author_id"] if teacher else anon_label(al["author_id"], al["assignment_id"], al["round"]),
         "rubric": [r for r in rubric if isinstance(r, dict) and "key" in r],
         "status": al["status"], "review_due_at": al["review_due_at"],
     }
+    existing = db.q1("SELECT scores,comment FROM reviews WHERE allocation_id=?", (al["id"],))
+    base["my_review"] = ({"scores": jload(existing["scores"], {}), "comment": existing["comment"]}
+                         if existing else None)
     # 编程题：把作者最好的一次提交作为评审对象（附自动评测结论，便于评审者判断）
     if al["problem_type"] == "programming":
         prob = dict(db.q1("SELECT * FROM problems WHERE id=?", (al["problem_id"],)) or {})
-        sub = db.q1(
-            "SELECT s.* FROM submissions s WHERE s.problem_id=? AND s.user_id=? "
+        sub = db.q1("SELECT * FROM submissions WHERE id=?", (al["submission_id"],)) if al["submission_id"] else db.q1(
+            "SELECT s.* FROM submissions s WHERE s.assignment_id=? AND s.problem_id=? AND s.user_id=? "
             "ORDER BY (s.verdict='Accepted') DESC, s.score DESC, s.id DESC LIMIT 1",
-            (al["problem_id"], al["author_id"]),
+            (al["assignment_id"], al["problem_id"], al["author_id"]),
         )
         detail = jload(sub["detail"], {}) if sub else {}
         cases = []
@@ -1648,6 +1768,8 @@ def api_review_task(ctx):
         cohort_ac = dict(cohort_ac_row) if cohort_ac_row else {}
         base.update({
             "kind": "code",
+            "source_assignment_id": sub["assignment_id"] if sub else None,
+            "uses_historical_submission": bool(sub and sub["assignment_id"] != al["assignment_id"]),
             "code": code,
             "language": lang,
             "verdict": sub["verdict"] if sub else None,
@@ -1700,37 +1822,67 @@ def api_review_task(ctx):
 
 @route("POST", "/api/reviews/{allocation_id}")
 def api_submit_review(ctx):
-    al = db.q1("SELECT * FROM allocations WHERE id=?", (ctx["params"]["allocation_id"],))
+    from .access import APIError
+    al = db.q1("SELECT al.*,a.allocation_status,a.review_due_at,a.course_id,a.status AS assignment_status,"
+                "p.rubric,p.type AS problem_type FROM allocations al JOIN assignments a "
+                "ON a.id=al.assignment_id JOIN problems p ON p.id=al.problem_id WHERE al.id=?",
+                (ctx["params"]["allocation_id"],))
     if not al:
         return err(404, "评审任务不存在")
-    if al["reviewer_id"] != ctx["user"]["id"] and not is_teacher(ctx["user"]):
-        return err(403, "无权提交该评审")
+    if al["reviewer_id"] != ctx["user"]["id"]:
+        return err(403, "只能提交分配给自己的评审")
+    if al["allocation_status"] != "confirmed":
+        return err(403, "教师尚未确认发布本轮互评")
+    end = parse_dt(al["review_due_at"])
+    if al["assignment_status"] == "closed" or (end and end < datetime.now()):
+        return err(403, "互评已截止")
+    rubric = [r for r in jload(al["rubric"], []) if isinstance(r, dict) and r.get("key")]
+    if not rubric:
+        rubric = default_code_rubric() if al["problem_type"] == "programming" else [
+            {"key": "idea", "max": 30}, {"key": "complexity", "max": 25},
+            {"key": "correctness", "max": 25}, {"key": "writing", "max": 20}]
     b = ctx["body"]
-    scores = b.get("scores") or {}
-    comment = (b.get("comment") or "").strip()
-    if not scores:
-        return err(400, "请先完成评分细则")
-    total = sum(float(v or 0) for v in scores.values())
-    existed = db.q1("SELECT id FROM reviews WHERE allocation_id=?", (al["id"],))
-    if existed:
-        db.ex(
-            "UPDATE reviews SET scores=?,total=?,comment=?,duration_sec=?,submitted_at=? WHERE id=?",
-            (db.jdumps(scores), round(total, 2), comment, b.get("duration_sec"),
-             db.now(), existed["id"]))
-    else:
-        db.ex(
-            "INSERT INTO reviews(allocation_id,assignment_id,problem_id,submission_id,reviewer_id,"
-            "author_id,scores,total,comment,duration_sec,started_at,submitted_at,flagged,flag_reason) "
-            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (al["id"], al["assignment_id"], al["problem_id"], None, al["reviewer_id"],
-             al["author_id"], db.jdumps(scores), round(total, 2), comment,
-             b.get("duration_sec"), b.get("started_at"), db.now(), 0, None))
-    db.ex("UPDATE allocations SET status='done' WHERE id=?", (al["id"],))
-    db.ex(
-        "INSERT INTO events(user_id,course_id,type,payload,created_at) VALUES(?,?,?,?,?)",
-        (ctx["user"]["id"], None, "submit_review",
-         db.jdumps({"allocation_id": al["id"], "total": round(total, 2)}), db.now()))
-    return ok({"total": round(total, 2)})
+    scores, comment = b.get("scores"), str(b.get("comment") or "").strip()
+    if not isinstance(scores, dict) or set(scores) != {r["key"] for r in rubric}:
+        return err(400, "请按全部评分细则逐项评分，不能添加其它评分项")
+    clean = {}
+    for spec in rubric:
+        value = scores[spec["key"]]
+        if isinstance(value, bool):
+            return err(400, "分数必须是数值")
+        value = float(value)
+        if not math.isfinite(value) or not 0 <= value <= float(spec["max"]):
+            return err(400, "评分超出该项满分范围")
+        clean[spec["key"]] = value
+    if len(comment) < 10:
+        return err(400, "请给出至少 10 个字的文字意见")
+    if not al["started_at"]:
+        return err(400, "请先打开评审任务，再提交评分")
+    start = parse_dt(al["started_at"])
+    duration = max(0, (datetime.now() - start).total_seconds())
+    if b.get("duration_sec") is not None:
+        supplied = float(b["duration_sec"])
+        if not math.isfinite(supplied) or supplied < 0:
+            return err(400, "评审时长不合法")
+    total = round(sum(clean.values()), 2)
+    conn = db.get_conn()
+    with conn:
+        existed = conn.execute("SELECT id FROM reviews WHERE allocation_id=?", (al["id"],)).fetchone()
+        if existed:
+            conn.execute("UPDATE reviews SET scores=?,total=?,comment=?,duration_sec=?,submitted_at=? WHERE id=?",
+                         (db.jdumps(clean), total, comment, duration, db.now(), existed["id"]))
+        else:
+            conn.execute(
+                "INSERT INTO reviews(allocation_id,assignment_id,problem_id,submission_id,reviewer_id,"
+                "author_id,scores,total,comment,duration_sec,started_at,submitted_at,flagged,flag_reason) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (al["id"], al["assignment_id"], al["problem_id"], al["submission_id"], al["reviewer_id"],
+                 al["author_id"], db.jdumps(clean), total, comment, duration, al["started_at"], db.now(), 0, None))
+        conn.execute("UPDATE allocations SET status='done' WHERE id=?", (al["id"],))
+        conn.execute("INSERT INTO events(user_id,course_id,type,payload,created_at) VALUES(?,?,?,?,?)",
+                     (ctx["user"]["id"], al["course_id"], "submit_review",
+                      db.jdumps({"allocation_id": al["id"], "total": total}), db.now()))
+    return ok({"total": total, "duration_sec": duration})
 
 
 @route("POST", "/api/assignments/{id}/aggregate", "teacher")
@@ -1739,6 +1891,15 @@ def api_aggregate(ctx):
     aid = int(ctx["params"]["id"])
     b = ctx["body"] or {}
     methods = b.get("methods") or AG.METHODS
+    a = db.q1("SELECT aggregation_method FROM assignments WHERE id=?", (aid,))
+    chosen = b.get("method") or a["aggregation_method"] or "reliability_em"
+    if (chosen not in AG.METHODS or not isinstance(methods, (list, tuple))
+            or any(m not in AG.METHODS for m in methods)):
+        return err(400, "不支持的聚合方法")
+    methods = list(dict.fromkeys([*methods, chosen]))
+    db.ex("UPDATE assignments SET aggregation_method=? WHERE id=?", (chosen, aid))
+    # 全作业刷新一次，避免不同题目的同一评审人互相覆盖检测结果。
+    db.ex("DELETE FROM anomalies WHERE status='open' AND assignment_id=?", (aid,))
     probs = uid_rows(
         "SELECT p.* FROM assignment_problems ap JOIN problems p ON p.id=ap.problem_id "
         "WHERE ap.assignment_id=? ORDER BY ap.order_index", (aid,))
@@ -1750,23 +1911,26 @@ def api_aggregate(ctx):
         rl = [
             {"submission_id": r["author_id"], "reviewer_id": r["reviewer_id"],
              "score": r["total"], "author_id": r["author_id"],
-             "duration_sec": r["duration_sec"], "rubric": jload(r["scores"], {})}
+             "duration_sec": r["duration_sec"], "rubric": jload(r["scores"], {}), "weight": r["weight"]}
             for r in reviews
         ]
         per_method = {
             m: {str(k): round(v, 2) for k, v in AG.aggregate(rl, m)["scores"].items()}
             for m in methods
         }
-        em = AG.aggregate(rl, b.get("method") or "reliability_em")
+        em = AG.aggregate(rl, chosen)
+        diagnostics = AG.aggregate(rl, "reliability_em")["detail"]
         conn = db.get_conn()
+        conn.execute("UPDATE subjective_submissions SET final_score=NULL,methods='{}' WHERE assignment_id=? AND problem_id=?", (aid, prob["id"]))
+        conn.execute("UPDATE submissions SET review_score=NULL,review_methods='{}' WHERE assignment_id=? AND problem_id=?", (aid, prob["id"]))
         for uid, sc in em["scores"].items():
             if prob["type"] == "programming":
                 # 代码互评：把聚合分写回该作者最好的一次提交
                 conn.execute(
                     "UPDATE submissions SET review_score=?, review_methods=? WHERE id=("
-                    "  SELECT id FROM submissions WHERE problem_id=? AND user_id=? "
+                    "  SELECT id FROM submissions WHERE assignment_id=? AND problem_id=? AND user_id=? "
                     "  ORDER BY (verdict='Accepted') DESC, score DESC, id DESC LIMIT 1)",
-                    (round(sc, 2), db.jdumps(per_method), prob["id"], uid),
+                    (round(sc, 2), db.jdumps(per_method), aid, prob["id"], uid),
                 )
             else:
                 conn.execute(
@@ -1774,18 +1938,22 @@ def api_aggregate(ctx):
                     "updated_at=? WHERE assignment_id=? AND problem_id=? AND user_id=?",
                     (round(sc, 2), db.jdumps(per_method), db.now(), aid, prob["id"], uid))
         conn.commit()
-        det = AN.detect(rl)
-        conn.execute(
-            "DELETE FROM anomalies WHERE assignment_id=? AND reviewer_id IN "
-            "(SELECT reviewer_id FROM reviews WHERE assignment_id=? AND problem_id=?)",
-            (aid, aid, prob["id"]))
+        # 异常检测审阅原始评分；人工权重只影响最终分，已处理告警在下方去重。
+        det = AN.detect([{**r, "weight": 1.0} for r in rl])
         for a in det["anomalies"]:
+            evidence = {**a.get("evidence", {}), "problem_id": prob["id"]}
+            handled = conn.execute(
+                "SELECT evidence FROM anomalies WHERE assignment_id=? AND type=? "
+                "AND reviewer_id IS ? AND submission_id IS ? AND status!='open'",
+                (aid, a["type"], a.get("reviewer_id"), a.get("submission_id"))).fetchall()
+            if any(jload(r["evidence"], {}).get("problem_id", prob["id"]) == prob["id"] for r in handled):
+                continue
             conn.execute(
                 "INSERT INTO anomalies(assignment_id,type,level,reviewer_id,submission_id,title,"
                 "detail,evidence,suggestion,status,handled_by,note,detected_at) "
                 "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (aid, a["type"], a["level"], a.get("reviewer_id"), a.get("submission_id"),
-                 a["title"], a["detail"], db.jdumps(a.get("evidence", {})), a["suggestion"],
+                 a["title"], a["detail"], db.jdumps(evidence), a["suggestion"],
                  "open", None, None, db.now()))
         conn.commit()
         rows = []
@@ -1801,10 +1969,10 @@ def api_aggregate(ctx):
         report.append({
             "problem_id": prob["id"], "problem_title": prob["title"], "results": rows,
             "comparison": AG.evaluate_aggregation(rl, None, methods),
-            "reviewer_bias": {str(k): round(v, 3) for k, v in em["detail"]["bias"].items()},
+            "reviewer_bias": {str(k): round(v, 3) for k, v in diagnostics["bias"].items()},
             "reviewer_reliability": {
-                str(k): round(v, 3) for k, v in em["detail"]["reliability"].items()},
-            "sigma": em["detail"].get("sigma"), "n_anomalies": len(det["anomalies"]),
+                str(k): round(v, 3) for k, v in diagnostics["reliability"].items()},
+            "sigma": diagnostics.get("sigma"), "n_anomalies": len(det["anomalies"]),
         })
     return ok({"report": report})
 
@@ -1823,10 +1991,12 @@ def api_review_results(ctx):
         rl = [
             {"submission_id": r["author_id"], "reviewer_id": r["reviewer_id"],
              "score": r["total"], "author_id": r["author_id"],
-             "duration_sec": r["duration_sec"], "rubric": jload(r["scores"], {})}
+             "duration_sec": r["duration_sec"], "rubric": jload(r["scores"], {}), "weight": r["weight"]}
             for r in reviews
         ]
-        em = AG.aggregate(rl, "reliability_em")
+        a = db.q1("SELECT aggregation_method FROM assignments WHERE id=?", (aid,))
+        em = AG.aggregate(rl, a["aggregation_method"] or "reliability_em")
+        diagnostics = AG.aggregate(rl, "reliability_em")["detail"]
         rows = []
         for uid in sorted(em["scores"]):
             u = db.q1("SELECT name,class_name,student_no FROM users WHERE id=?", (uid,)) or {}
@@ -1865,9 +2035,9 @@ def api_review_results(ctx):
                 {"reviewer_id": int(rid),
                  "name": dict(db.q1("SELECT name FROM users WHERE id=?", (rid,)) or {}).get("name"),
                  "bias": round(b, 3),
-                 "reliability": round(em["detail"]["reliability"].get(int(rid), 1.0), 3),
+                 "reliability": round(diagnostics["reliability"].get(int(rid), 1.0), 3),
                  "n": sum(1 for r in reviews if r["reviewer_id"] == int(rid))}
-                for rid, b in sorted(em["detail"]["bias"].items(), key=lambda kv: -abs(kv[1]))
+                for rid, b in sorted(diagnostics["bias"].items(), key=lambda kv: -abs(kv[1]))
             ],
         })
     return ok(out)

@@ -75,6 +75,12 @@ class Handler(BaseHTTPRequestHandler):
     server_version = "AJP/1.0"
     protocol_version = "HTTP/1.1"
 
+    def finish(self):
+        try:
+            super().finish()
+        finally:
+            db.close_conn()
+
     # ---------------- 基础响应 ----------------
     def _send(self, status: int, body: bytes, content_type: str, extra=None) -> None:
         self.send_response(status)

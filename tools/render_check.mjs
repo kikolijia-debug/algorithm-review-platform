@@ -8,6 +8,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = process.cwd();
 
@@ -119,13 +120,13 @@ const mods = {};
 async function loadModule(rel) {
   if (mods[rel]) return mods[rel];
   const file = path.join(ROOT, rel);
-  const url = 'file:///' + encodeURI(file.replace(/\\/g, '/'));
+  const url = pathToFileURL(file).href;
   const src = fs.readFileSync(file, 'utf8');
-  const mod = new vm.SourceTextModule(src, { context: ctx, identifier: url });
+  const mod = new vm.SourceTextModule(src, { context: ctx, identifier: url, initializeImportMeta: (meta) => { meta.url = url; } });
   mods[rel] = mod;
   await mod.link(async (spec, referencing) => {
     const target = new URL(spec, referencing.identifier);
-    const relPath = path.relative(ROOT, decodeURIComponent(target.pathname.replace(/^\//, '')));
+    const relPath = path.relative(ROOT, fileURLToPath(target));
     return loadModule(relPath.replace(/\\/g, '/'));
   });
   await mod.evaluate();
@@ -195,6 +196,40 @@ check('学生菜单里没有「我的资料」（只给教师/助教）',
 check('菜单包含 我的工作台 / 返回首页 / 退出登录',
   menuText.includes('我的工作台') && menuText.includes('返回首页')
   && menuText.includes('退出登录'), menuText);
+
+// 主观题回填、草稿保存与作业归属必须经过实际 DOM 事件。
+const problemPage = (await loadModule('frontend/js/pages/problem.js')).namespace;
+const proof = { id: 9, title: '证明题', type: 'proof', difficulty: 2,
+  assignment_id: 7, assignments: [{ id: 7, title: '本次作业' }],
+  samples: [{ sections: [{ key: 'answer', name: '证明' }] }],
+  my_subjective: { content: { answer: '已提交的原文' }, status: 'pending' }, rubric: [] };
+let proofNode = problemPage.renderProblem({ problem: proof, meta: {} });
+let area = find(proofNode, (n) => n.tagName === 'TEXTAREA')[0];
+check('主观题重开时回填已提交原文', area.value === '已提交的原文');
+area.value = '修改后的浏览器草稿';
+area.listeners.input[0]({ target: area });
+proofNode = problemPage.renderProblem({ problem: proof, meta: {} });
+area = find(proofNode, (n) => n.tagName === 'TEXTAREA')[0];
+check('主观题草稿重开后恢复', area.value === '修改后的浏览器草稿');
+const picker = find(proofNode, (n) => n.tagName === 'SELECT')[0];
+picker.value = '7';
+picker.listeners.change[0]({ target: picker });
+check('作业选择器使用实际选中的作业 ID', ctx.location.hash === '#/problem/9?assignment_id=7');
+const noAssignment = problemPage.renderProblem({ problem: { ...proof, assignment_id: null }, meta: {} });
+check('未选择所属作业时禁止主观题提交', find(noAssignment, (n) => n.tagName === 'BUTTON' && textOf(n).includes('更新提交'))[0].disabled);
+appStore.state.user = { id: 999, role: 'student' };
+proofNode = problemPage.renderProblem({ problem: { ...proof, my_subjective: null }, meta: {} });
+check('浏览器草稿按账号隔离', find(proofNode, (n) => n.tagName === 'TEXTAREA')[0].value === '');
+
+const dataset = JSON.parse(fs.readFileSync(path.join(ROOT, 'frontend/demo/dataset.json'), 'utf8'));
+ctx.fetch = async () => ({ ok: true, json: async () => dataset });
+const demo = (await loadModule('frontend/js/demo/demo-api.js')).namespace;
+await demo.request('/api/auth/login', { method: 'POST', body: { username: 'stu1', password: '123456', role: 'student' } });
+const subjectiveRow = dataset.subjective.find((s) => s.user_id === dataset.students[0].id);
+const demoProblem = await demo.request('/api/problems/' + subjectiveRow.problem_id, { query: { assignment_id: subjectiveRow.assignment_id } });
+check('静态演示保留指定作业与原文', demoProblem.assignment_id === subjectiveRow.assignment_id && !!demoProblem.my_subjective);
+const demoAssignment = await demo.request('/api/assignments/' + subjectiveRow.assignment_id);
+check('静态演示作业保留题目详情且学生看不到参考答案', demoAssignment.problems.every((p) => Array.isArray(p.rubric) && !('solution' in p)));
 
 console.log('\n' + (fail ? `有 ${fail} 项失败` : '渲染冒烟测试全部通过'));
 process.exit(fail ? 1 : 0);

@@ -28,7 +28,31 @@ export async function request(path, { method = 'GET', body, query } = {}) {
     }
   }
   if (method !== 'GET') return write(path, body);
-  return read(path, query || {});
+  const result = read(path, query || {});
+  return session && session.role === 'student' ? studentView(result) : result;
+}
+
+function studentView(value, aid = null) {
+  if (Array.isArray(value)) return value.map((v) => studentView(v, aid));
+  if (!value || typeof value !== 'object') return value;
+  const out = { ...value };
+  aid = out.assignment_id || (out.problems && out.review_due_at ? out.id : aid);
+  const assignment = DS.assignments.find((a) => a.id === Number(aid));
+  const visible = assignment && assignment.allocation_status === 'confirmed' && assignment.review_due_at
+    && new Date(assignment.review_due_at.replace(/-/g, '/')) <= new Date();
+  ['solution', 'gen_key', 'author_id', 'reviewer_id'].forEach((k) => delete out[k]);
+  if ('review_published' in out) out.review_published = !!visible;
+  ['methods', 'review_methods'].forEach((k) => {
+    if (k in out) {
+      const methods = typeof out[k] === 'string' ? JSON.parse(out[k] || '{}') : out[k];
+      out[k] = visible ? Object.fromEntries(Object.entries(methods || {}).map(([m, v]) => [m, v && typeof v === 'object' ? v[session.id] : v])) : {};
+    }
+  });
+  if (!visible) {
+    ['final_score', 'review_score'].forEach((k) => { if (k in out) out[k] = null; });
+    ['reviews', 'peer_reviews'].forEach((k) => { if (Array.isArray(out[k])) out[k] = []; });
+  }
+  return Object.fromEntries(Object.entries(out).map(([k, v]) => [k, studentView(v, aid)]));
 }
 
 async function loadDataset() {
@@ -176,7 +200,7 @@ function read(path, q) {
           .filter((p) => !q.q || p.title.includes(q.q))
           .map(problemSummary);
       }
-      return problemDetail(Number(tail[1]));
+      return problemDetail(Number(tail[1]), q);
     case 'chapters':
       return chapterOverview();
     case 'materials':
@@ -373,12 +397,15 @@ function problemSummary(p) {
   };
 }
 
-function problemDetail(id) {
+function problemDetail(id, q = {}) {
   const p = DS.problems.find((x) => x.id === id);
   if (!p) fail('题目不存在');
   const mine = DS.submissions.filter((s) => s.problem_id === id && s.user_id === (session && session.id));
   const samples = parseArr(p.samples);
   const isSubj = p.type !== 'programming';
+  const assignments = DS.assignments.filter((a) => assignmentsOf(a.id).includes(id) && (session.role !== 'student' || a.status !== 'draft'));
+  const aid = Number(q.assignment_id) || (isSubj && assignments.length === 1 ? assignments[0].id : null);
+  const original = DS.subjective.find((s) => s.problem_id === id && s.assignment_id === aid && s.user_id === session.id);
   return {
     ...p,
     topics: parseArr(p.topics),
@@ -394,7 +421,9 @@ function problemDetail(id) {
     my_submissions: mine.slice(0, 20),
     my_best: mine.length ? Math.max(...mine.map((s) => s.score)) : null,
     solved: mine.some((s) => s.verdict === 'Accepted'),
-    assignment_id: (DS.assignments.find((a) => assignmentsOf(a.id).includes(id)) || {}).id || null,
+    assignments: assignments.map((a) => ({ id: a.id, title: a.title })),
+    assignment_id: aid,
+    my_subjective: original ? { ...original, content: typeof original.content === 'string' ? JSON.parse(original.content) : original.content } : null,
   };
 }
 
@@ -452,7 +481,7 @@ function assignmentDetail(id) {
       hidden_count: 8,
     };
   });
-  return { ...a, params: {}, problems, ...assignmentSummary(a) };
+  return { ...a, params: {}, ...assignmentSummary(a), problems };
 }
 
 function submissions(q) {

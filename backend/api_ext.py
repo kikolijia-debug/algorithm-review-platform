@@ -83,19 +83,11 @@ def api_assignment_progress(ctx):
         "MAX(CASE WHEN s.verdict='Accepted' THEN 1 ELSE 0 END) solved, "
         "MAX(s.id) last_id FROM submissions s WHERE s.assignment_id=? "
         "GROUP BY s.user_id, s.problem_id", (aid,))
-    # 没有挂作业的历史提交（教师手动组织的代码互评）按题目兜底
-    prog_all = uid_rows(
-        "SELECT s.user_id, s.problem_id, COUNT(*) tries, MAX(s.score) best, "
-        "MAX(CASE WHEN s.verdict='Accepted' THEN 1 ELSE 0 END) solved, MAX(s.id) last_id "
-        "FROM submissions s GROUP BY s.user_id, s.problem_id")
     last_rows = {r["id"]: r for r in uid_rows(
         "SELECT id,verdict,language,submitted_at,time_ms,memory_kb FROM submissions "
         "WHERE assignment_id=?", (aid,))}
-    if not last_rows:
-        last_rows = {r["id"]: r for r in uid_rows(
-            "SELECT id,verdict,language,submitted_at,time_ms,memory_kb FROM submissions")}
     subj = uid_rows(
-        "SELECT ss.user_id, ss.problem_id, ss.status, ss.final_score, ss.submitted_at, ss.methods "
+        "SELECT ss.id, ss.user_id, ss.problem_id, ss.status, ss.final_score, ss.submitted_at, ss.methods "
         "FROM subjective_submissions ss WHERE ss.assignment_id=?", (aid,))
     reviews = uid_rows(
         "SELECT rv.author_id, rv.problem_id, rv.total FROM reviews rv "
@@ -104,8 +96,6 @@ def api_assignment_progress(ctx):
     prog_map = {}
     for r in prog:
         prog_map[(r["user_id"], r["problem_id"])] = r
-    for r in prog_all:
-        prog_map.setdefault((r["user_id"], r["problem_id"]), r)
     subj_map = {(r["user_id"], r["problem_id"]): r for r in subj}
     review_sum, review_cnt = {}, {}
     for r in reviews:
@@ -137,7 +127,7 @@ def api_assignment_progress(ctx):
                 solved += 1 if pr["solved"] else 0
                 score += pr["best"] or 0
             if sj:
-                cell.update({"submitted": True, "subjective_id": sj["problem_id"],
+                cell.update({"submitted": True, "subjective_id": sj["id"],
                              "subjective_status": sj["status"],
                              "review_score": sj["final_score"],
                              "submitted_at": cell.get("submitted_at") or sj["submitted_at"]})
@@ -436,7 +426,7 @@ def api_analytics_student(ctx):
         "SELECT ss.id,ss.assignment_id,ss.problem_id,ss.status,ss.final_score,ss.methods,"
         "ss.submitted_at,p.title AS problem_title,a.title AS assignment_title,a.review_due_at "
         "FROM subjective_submissions ss JOIN problems p ON p.id=ss.problem_id "
-        "JOIN assignments a ON a.id=ss.assignment_id WHERE ss.user_id=? ORDER BY ss.id DESC", (uid,))
+        "JOIN assignments a ON a.id=ss.assignment_id WHERE ss.user_id=? AND a.course_id=? ORDER BY ss.id DESC", (uid, course_id))
     for s in subj:
         s["methods"] = jload(s["methods"], {})
         end = parse_dt(s["review_due_at"])
@@ -448,8 +438,8 @@ def api_analytics_student(ctx):
     given = uid_rows(
         "SELECT al.id,al.assignment_id,al.problem_id,al.status,r.total,r.duration_sec,"
         "p.title AS problem_title FROM allocations al JOIN problems p ON p.id=al.problem_id "
-        "LEFT JOIN reviews r ON r.allocation_id=al.id WHERE al.reviewer_id=? ORDER BY al.id DESC",
-        (uid,))
+        "LEFT JOIN reviews r ON r.allocation_id=al.id WHERE al.reviewer_id=? AND p.course_id=? ORDER BY al.id DESC",
+        (uid, course_id))
     events = uid_rows(
         "SELECT type, COUNT(*) c FROM events WHERE user_id=? GROUP BY type ORDER BY c DESC", (uid,))
     peers = uid_rows(
@@ -522,10 +512,13 @@ def api_knowledge(ctx):
         for p in problems.values()
     }
     diff_full = AB.difficulty_report(rows, irt, attempts)
+    ability = irt.get("ability_100", {})
+    if not is_teacher(ctx["user"]):
+        ability = {k: v for k, v in ability.items() if int(k) == ctx["user"]["id"]}
     return ok({
         "mastery": mastery,
         "per_user": per_user,
-        "ability": irt.get("ability_100", {}),
+        "ability": ability,
         "difficulty": {
             str(k): {**v, "title": problems[k]["title"] if k in problems else "",
                      "mean_attempts_full": diff_full.get(k, {}).get("mean_attempts")}
@@ -606,9 +599,8 @@ def api_anomalies(ctx):
             args.append(q[key])
     # 只看当前课程范围内的异常
     cid = _first_course(ctx)
-    if cid:
-        sql += " AND a.course_id=?"
-        args.append(cid)
+    sql += " AND a.course_id=?"
+    args.append(cid)
     sql += (" ORDER BY CASE an.level WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END, an.id DESC")
     rows = uid_rows(sql, args)
     for r in rows:
@@ -660,19 +652,35 @@ def api_anomalies(ctx):
 
 @route("POST", "/api/anomalies/{id}/handle", "teacher")
 def api_anomaly_handle(ctx):
+    import math
     b = ctx["body"]
     an_id = int(ctx["params"]["id"])
     status = b.get("status") or "confirmed"
     if status not in ("open", "confirmed", "dismissed", "adjusted"):
         return err(400, "状态不合法")
+    weight = b.get("adjust_weight")
+    if weight is not None:
+        weight = float(weight)
+        if not math.isfinite(weight) or not 0 <= weight <= 3:
+            return err(400, "权重必须在 0 至 3 之间")
+    an = db.q1("SELECT * FROM anomalies WHERE id=?", (an_id,))
     db.ex("UPDATE anomalies SET status=?,handled_by=?,note=? WHERE id=?",
           (status, ctx["user"]["id"], b.get("note") or "", an_id))
-    if status in ("confirmed", "adjusted") and b.get("adjust_weight") is not None:
-        an = db.q1("SELECT * FROM anomalies WHERE id=?", (an_id,))
-        if an and an["reviewer_id"]:
-            db.ex("UPDATE allocations SET weight=? WHERE reviewer_id=? AND assignment_id=?",
-                  (float(b["adjust_weight"]), an["reviewer_id"], an["assignment_id"]))
-    return ok({"id": an_id, "status": status})
+    before = uid_rows("SELECT id,final_score FROM subjective_submissions WHERE assignment_id=?", (an["assignment_id"],))
+    if an["reviewer_id"] and (weight is not None or status == "dismissed"):
+        chosen = weight if status in ("confirmed", "adjusted") else 1.0
+        db.ex("UPDATE allocations SET weight=? WHERE reviewer_id=? AND assignment_id=?",
+              (chosen, an["reviewer_id"], an["assignment_id"]))
+        if not ctx.get("defer_reaggregate"):
+            from .api import api_aggregate
+            code, result = api_aggregate(dict(ctx, params={"id": str(an["assignment_id"])} , body={}))
+            if code != 200:
+                return code, result
+    db.ex("INSERT INTO events(user_id,course_id,type,payload,created_at) VALUES(?,?,?,?,?)",
+          (ctx["user"]["id"], active_course_id(ctx), "anomaly_handled",
+           db.jdumps({"anomaly_id": an_id, "status": status, "weight": weight,
+                      "before": before, "note": b.get("note") or ""}), db.now()))
+    return ok({"id": an_id, "status": status, "reaggregated": weight is not None or status == "dismissed"})
 
 
 @route("POST", "/api/anomalies/handle-batch", "teacher")
@@ -680,9 +688,20 @@ def api_anomaly_batch(ctx):
     b = ctx["body"] or {}
     ids = b.get("ids") or []
     status = b.get("status") or "confirmed"
+    if status not in ("open", "confirmed", "dismissed", "adjusted"):
+        return err(400, "状态不合法")
+    assignments = set()
     for i in ids:
-        db.ex("UPDATE anomalies SET status=?,handled_by=?,note=? WHERE id=?",
-              (status, ctx["user"]["id"], b.get("note") or "", i))
+        assignments.add(db.q1("SELECT assignment_id FROM anomalies WHERE id=?", (i,))["assignment_id"])
+        code, result = api_anomaly_handle(dict(ctx, params={"id": str(i)}, body={**b, "status": status}, defer_reaggregate=True))
+        if code != 200:
+            return code, result
+    if b.get("adjust_weight") is not None or status == "dismissed":
+        from .api import api_aggregate
+        for aid in assignments:
+            code, result = api_aggregate(dict(ctx, params={"id": str(aid)}, body={}))
+            if code != 200:
+                return code, result
     return ok({"updated": len(ids)})
 
 
@@ -705,9 +724,8 @@ def api_similarity(ctx):
         sql += " AND s.assignment_id=?"
         args.append(q["assignment_id"])
     cid = _first_course(ctx)
-    if cid:
-        sql += " AND p.course_id=?"
-        args.append(cid)
+    sql += " AND p.course_id=?"
+    args.append(cid)
     sql += " AND s.id IN (SELECT MAX(id) FROM submissions GROUP BY user_id,problem_id) LIMIT 200"
     rows = uid_rows(sql, args)
     if len(rows) < 2:
@@ -726,7 +744,8 @@ def api_similarity(ctx):
 @route("GET", "/api/experiments", "teacher")
 def api_experiments(ctx):
     rows = uid_rows(
-        "SELECT id,name,params,result,elapsed_ms,created_at FROM experiments ORDER BY id DESC LIMIT 40")
+        "SELECT id,name,params,result,elapsed_ms,created_at FROM experiments WHERE course_id=? ORDER BY id DESC LIMIT 40",
+        (active_course_id(ctx),))
     for r in rows:
         r["params"] = jload(r["params"], {})
         r["result"] = jload(r["result"], {})
@@ -736,6 +755,9 @@ def api_experiments(ctx):
 @route("POST", "/api/experiments/run")
 def api_experiment_run(ctx):
     b = ctx["body"] or {}
+    cid = active_course_id(ctx)
+    if not cid:
+        return err(400, "请先加入课程")
     key = b.get("key")
     fn = EX.EXPERIMENTS.get(key)
     if not fn:
@@ -760,8 +782,8 @@ def api_experiment_run(ctx):
     elapsed = round((time.perf_counter() - t0) * 1000, 2)
     result["elapsed_ms"] = elapsed
     result["id"] = db.ex(
-        "INSERT INTO experiments(name,params,result,elapsed_ms,created_at) VALUES(?,?,?,?,?)",
-        (key, db.jdumps(kwargs), db.jdumps(result), elapsed, db.now()))
+        "INSERT INTO experiments(name,params,result,elapsed_ms,created_at,course_id) VALUES(?,?,?,?,?,?)",
+        (key, db.jdumps(kwargs), db.jdumps(result), elapsed, db.now(), cid))
     return ok(result)
 
 
@@ -772,12 +794,12 @@ def api_experiment_run(ctx):
 
 @route("GET", "/api/notices")
 def api_notices(ctx):
-    cid = ctx["query"].get("course_id")
-    if not cid:
-        cid = _first_course(ctx)
+    cid = _first_course(ctx)
     rows = uid_rows(
         "SELECT n.*,u.name AS author_name FROM notices n LEFT JOIN users u ON u.id=n.author_id "
-        "WHERE (? IS NULL OR n.course_id=?) ORDER BY n.id DESC LIMIT 30", (cid, cid))
+        "WHERE n.course_id=? ORDER BY n.id DESC LIMIT ? OFFSET ?",
+        (cid, min(100, max(1, int(ctx["query"].get("limit") or 30))),
+         max(0, int(ctx["query"].get("offset") or 0))))
     return ok(rows)
 
 
@@ -786,7 +808,7 @@ def api_notice_create(ctx):
     b = ctx["body"]
     nid = db.ex(
         "INSERT INTO notices(course_id,title,content,author_id,created_at) VALUES(?,?,?,?,?)",
-        (b.get("course_id") or db.q1("SELECT id FROM courses ORDER BY id")["id"],
+        (active_course_id(ctx),
          b.get("title") or "通知", b.get("content") or "", ctx["user"]["id"], db.now()))
     return ok({"id": nid})
 
@@ -879,7 +901,7 @@ def api_dashboard_student(ctx):
     cid = course["id"] if course else None
     now = datetime.now()
     assignments = uid_rows(
-        "SELECT * FROM assignments WHERE course_id=? ORDER BY "
+        "SELECT * FROM assignments WHERE course_id=? AND status<>'draft' ORDER BY "
         "CASE WHEN due_at IS NULL THEN 1 ELSE 0 END, due_at DESC", (cid,))
     todo = []
     for a in assignments:
@@ -891,8 +913,8 @@ def api_dashboard_student(ctx):
         for p in probs:
             if p["type"] == "programming":
                 hit = db.q1(
-                    "SELECT id FROM submissions WHERE problem_id=? AND user_id=? "
-                    "AND verdict='Accepted' LIMIT 1", (p["id"], uid))
+                    "SELECT id FROM submissions WHERE assignment_id=? AND problem_id=? AND user_id=? "
+                    "AND verdict='Accepted' LIMIT 1", (a["id"], p["id"], uid))
             else:
                 hit = db.q1(
                     "SELECT id FROM subjective_submissions WHERE assignment_id=? AND problem_id=? "
@@ -908,7 +930,7 @@ def api_dashboard_student(ctx):
             a["my_review_pending"] = db.q1(
                 "SELECT COUNT(*) c FROM allocations WHERE assignment_id=? AND reviewer_id=? "
                 "AND status='pending'", (a["id"], uid))["c"]
-        if done < len(probs) and not a["overdue"]:
+        if done < len(probs) and not a["overdue"] and a["status"] == "published":
             todo.append(a)
     subs = uid_rows(
         "SELECT s.id,s.verdict,s.score,s.time_ms,s.submitted_at,p.title,p.type "
@@ -918,7 +940,8 @@ def api_dashboard_student(ctx):
         "SELECT al.id,a.title,a.id AS assignment_id,a.review_due_at,p.title AS problem_title "
         "FROM allocations al JOIN assignments a ON a.id=al.assignment_id "
         "JOIN problems p ON p.id=al.problem_id WHERE al.reviewer_id=? AND al.status='pending' "
-        "ORDER BY a.review_due_at", (uid,))
+        "AND a.allocation_status='confirmed' AND a.course_id=? "
+        "ORDER BY a.review_due_at", (uid, cid))
     total_subs = db.q1("SELECT COUNT(*) c FROM submissions WHERE user_id=?", (uid,))["c"]
     total_ac = db.q1(
         "SELECT COUNT(*) c FROM submissions WHERE user_id=? AND verdict='Accepted'", (uid,))["c"]
