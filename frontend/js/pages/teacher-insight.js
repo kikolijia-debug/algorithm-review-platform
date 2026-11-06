@@ -1406,7 +1406,7 @@ export function renderExperiments({ meta, history }) {
             onClick: async (e) => {
               const btn = e.target.closest('button');
               btn.disabled = true;
-              clear(out).appendChild(U.loading('正在运行实验，复杂度实验需要真实编译运行程序，请稍候…'));
+              clear(out).appendChild(U.loading('正在运行实验，复杂度测试耗时较长，请稍候…'));
               try {
                 const r = await api.post('/api/experiments/run', { key: current.key, params: values });
                 clear(out);

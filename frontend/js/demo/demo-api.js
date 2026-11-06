@@ -14,7 +14,7 @@ let DS = null;
 let session = null;
 
 const WRITE_BLOCKED =
-  '演示模式（静态站点）不执行写操作与真实编译评测。请在本地运行 python run.py 体验完整的自动评测与互评流程。';
+  '当前为只读演示。提交作答、评分和修改课程内容，请使用课程服务器。';
 
 export async function request(path, { method = 'GET', body, query } = {}) {
   if (!DS) {

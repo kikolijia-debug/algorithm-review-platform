@@ -82,8 +82,9 @@ export function renderDashboard({ dash, knowledge, report }) {
         'p',
         { class: 'hero__sub' },
         todo.length
-          ? `今天有 ${todo.length} 项作业还在进行中，${pending.length} 份同学的主观题等你评审。`
-          : `当前没有待办作业${pending.length ? `，但有 ${pending.length} 份互评任务待完成。` : '，可以自由安排复习计划。'}`
+          ? h('span', {}, '进行中的作业 ', h('strong', { class: 'text-emphasis' }, String(todo.length)), ' 项',
+              pending.length ? h('span', {}, '，待评审 ', h('strong', { class: 'text-emphasis' }, String(pending.length)), ' 份。') : '。')
+          : pending.length ? `还有 ${pending.length} 份互评待完成。` : '作业已完成，可以回看提交记录或继续练习。'
       ),
       h(
         'div',
@@ -146,7 +147,7 @@ export function renderDashboard({ dash, knowledge, report }) {
   );
 
   const recent = U.card(
-    U.cardHead('最近提交', { sub: '含判定结果、运行时间与尝试次数' }),
+    U.cardHead('最近提交'),
     dash.recent_submissions.length
       ? h(
           'div',
@@ -202,7 +203,7 @@ export function renderDashboard({ dash, knowledge, report }) {
     : U.empty('暂无提交数据', '');
 
   const overview = U.card(
-    U.cardHead('学习概览', { sub: '基于本课程全部提交记录实时计算' }),
+        U.cardHead('学习概览', { sub: '本课程的练习与互评记录' }),
     h(
       'div',
       { class: 'stat-row' },
@@ -508,7 +509,6 @@ export function renderSubmissions({ rows, problems }) {
           [{ value: '', label: '全部判定' },
             ...Object.keys(VERDICT_MEANING).map((v) => ({ value: v, label: v }))],
           { onchange: (e) => { verdict = e.target.value; paint(); } })),
-      U.note('点任意一行可以看到逐测试点结果、源代码，以及同学对我这份代码的评审意见。', 'info'),
       U.table(
         [
           { title: '题目', render: (r) => h('b', {}, r.problem_title) },
@@ -581,7 +581,7 @@ export function renderSubmissions({ rows, problems }) {
     {},
     U.pageHeader('我的提交', {
       eyebrow: 'MY SUBMISSIONS',
-      sub: '编程题看自动评测结果，主观题看互评得分与匿名意见；点任意一行查看详情。',
+      sub: '查看评测结果和同学的反馈。',
       actions: h('a', { class: 'btn btn--primary', href: '#/problems' }, '去作答'),
     }),
     tabBar,
@@ -634,7 +634,7 @@ export function renderSubmissionDetail({ s }) {
               h('span', { class: 'case-line__name' }, r.name || ('测试点 ' + r.test_case_id)),
               h('span', { class: 'case-line__io' }, `${U.fmtTime(r.time_ms)} · ${U.fmtMem(r.memory_kb)}`),
               r.message && r.verdict !== 'AC' && r.verdict !== 'Accepted' ? h('span', { class: 'small muted' }, r.message) : null)))
-        : U.empty('没有测试点明细', '该记录为演示数据，可在教师端点击「重测」生成真实评测结果。')
+        : U.empty('暂无测试点明细', '可联系教师重新评测。')
     ),
     s.compile_message ? U.card(U.cardHead('编译信息'), U.codeBlock(s.compile_message, 'text')) : null,
     U.card(
@@ -699,7 +699,7 @@ export function renderReviews({ rows }) {
       sub: '按细则逐项打分，并写下具体意见。',
     }),
     U.note(
-      '双方互相匿名，结果在评审截止后公布。异常评分会被标记并交教师复核。'
+      '互评双方匿名。成绩和评语在评审截止后公布。'
     ),
     h('div', { class: 'mt16' },
       h('h3', { class: 'mb8', style: { fontSize: '15px' } }, `待完成互评（${pending.length}）`),
@@ -754,7 +754,7 @@ function reviewData(task) {
   return h(
     'div',
     { class: 'review-data' },
-      task.uses_historical_submission ? U.note('本轮沿用升级前选定的历史代码提交；该记录不计入本次作业提交进度。') : null,
+      task.uses_historical_submission ? U.note('本轮评审使用历史提交，不计入本次作业进度。') : null,
     h(
       'div',
       { class: 'stat-row' },
@@ -1100,7 +1100,7 @@ export function renderReviewTask({ task, startedAt }) {
       value: comment,
       oninput: (e) => { comment = e.target.value; },
       style: { minHeight: '120px' },
-    }), { hint: '具体的修改建议会被汇总给作者，请保持客观、建设性' }),
+    }), { hint: '至少 10 字，可指出具体段落、代码行或遗漏的边界情况。' }),
     h('div', { class: 'row mt16' },
       U.btn('提交评审', {
         tone: 'primary', icon: U.icon.check,
@@ -1134,7 +1134,7 @@ export function renderReviewTask({ task, startedAt }) {
     {},
     U.pageHeader('匿名互评', {
       eyebrow: 'REVIEW TASK #' + task.allocation_id,
-      sub: '评审时长会被记录',
+      sub: '先阅读作答，再按细则评分。',
     }),
     h('div', { class: 'review-layout' }, left, right)
   );
@@ -1248,7 +1248,7 @@ export function renderReport({ report, knowledge, ability }) {
             : U.empty('暂无数据', '')
         ),
         U.card(
-          U.cardHead('互评参与情况', { sub: '我给你打分的记录不在此处展示（保证匿名）' }),
+          U.cardHead('互评参与情况'),
           U.kv([
             ['完成评审', `${report.review_stats.done} / ${report.review_stats.given}`],
             ['我给的平均分', report.review_stats.mean_score == null ? '—' : report.review_stats.mean_score],
@@ -1269,7 +1269,7 @@ export function renderReport({ report, knowledge, ability }) {
     ),
     // 页脚只在打印/导出时出现
     h('div', { class: 'report-foot' },
-      '本报告由涅槃评审平台自动生成 · 数据来自本课程的真实提交、评测与互评记录')
+      '涅槃 · 本课程学习记录')
   );
 }
 

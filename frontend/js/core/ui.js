@@ -75,13 +75,24 @@ export function cardHead(title, { sub, actions, icon } = {}) {
 }
 
 export function pageHeader(title, { eyebrow, sub, actions } = {}) {
+  const labels = {
+    'PROBLEM BANK': '课程题库', PROBLEM: '题目', ASSIGNMENTS: '课程作业', ASSIGNMENT: '作业',
+    'MY SUBMISSIONS': '作答记录', SUBMISSIONS: '评测记录', SUBMISSION: '提交记录',
+    'PEER REVIEW': '同伴互评', 'REVIEW TASK': '评审任务', 'PEER REVIEW OPS': '评审管理',
+    'MY CLASS': '班级', CLASSES: '班级管理', NOTIFICATIONS: '课程消息', COURSEWARE: '课程资料',
+    'LEARNING REPORT': '学习记录', 'LEARNING ANALYTICS': '学情分析',
+    'ALGORITHM LAB': '算法实验', 'ANOMALY DETECTION': '评分复核', 'PLAGIARISM DETECTION': '代码比对',
+  };
+  const match = String(eyebrow || '').match(/^(.*?)(?: #(\d+))?$/);
+  const section = match && (labels[match[1]] || match[1]);
   return h(
     'header',
     { class: 'page-head' },
     h(
       'div',
       {},
-      eyebrow ? h('div', { class: 'page-head__eyebrow' }, eyebrow) : null,
+      eyebrow ? h('div', { class: 'page-head__eyebrow' },
+        h('span', {}, section), match[2] ? h('span', { class: 'type-index' }, 'No. ' + match[2].padStart(2, '0')) : null) : null,
       h('h1', { class: 'page-head__title' }, title),
       sub ? h('p', { class: 'page-head__sub' }, sub) : null
     ),

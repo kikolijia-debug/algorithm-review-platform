@@ -93,9 +93,10 @@ export function esc(s) {
 }
 
 /**
- * 题面里的一点点行内格式：支持 ``**重点**`` 加粗。
+ * 题面行内格式：加粗与代码片段，先转义再生成受控标签。
  * 先转义再替换，保证注入不进来（题库里很多题面都用了这种写法）。
  */
 export function inlineMd(s) {
-  return esc(s).replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>');
+  return esc(s).replace(/`([^`\n]+)`|\*\*([^*\n]+)\*\*/g,
+    (_match, code, emphasis) => code !== undefined ? `<code>${code}</code>` : `<strong>${emphasis}</strong>`);
 }

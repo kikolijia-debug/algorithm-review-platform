@@ -311,7 +311,7 @@ function subjectivePane(problem) {
           content,
         });
         try { localStorage.removeItem(draftKey); } catch { /* 忽略 */ }
-        ok('已提交，系统将在互评阶段匿名分配给你的同学');
+        ok('作答已提交');
         router.resolve();
       } catch (e) {
         fail(e.message);
@@ -338,7 +338,7 @@ function subjectivePane(problem) {
     { class: 'col', style: { gap: '14px' } },
     U.card(
       U.cardHead(existing ? '修改作答' : '在线作答', {
-        sub: problem.assignment_id ? '草稿自动保存在当前浏览器；提交后进入匿名互评。' : '请先在上方选择所属作业，再提交作答。',
+        sub: problem.assignment_id ? '草稿保存在此浏览器，提交后教师可查看。' : '请先选择所属作业。',
         actions: existing ? U.badge('已提交 · ' + (existing.status === 'done' ? '评审已完成' : '评审中'), existing.status === 'done' ? 'ok' : 'warn') : null,
       }),
       editorBox,

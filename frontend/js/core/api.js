@@ -47,7 +47,7 @@ export async function api(path, { method = 'GET', body, query } = {}) {
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch (e) {
-    throw new ApiError('无法连接后端服务，请确认已运行 python run.py', 0);
+    throw new ApiError('暂时无法连接课程服务，请稍后重试。', 0);
   }
   let payload = null;
   const txt = await res.text();

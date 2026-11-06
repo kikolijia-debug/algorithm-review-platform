@@ -47,7 +47,7 @@ const NAV = {
       ],
     },
     {
-      group: '分析与治理',
+      group: '评审与复核',
       items: [
         { label: '学情分析', path: '/teacher/analytics', icon: icon.chart },
         { label: '评审管理', path: '/teacher/reviews', icon: icon.shield, badge: 'openAnomalies' },
@@ -93,8 +93,7 @@ function sidebar() {
       'div',
       { class: 'scene' },
       h('span', { html: icon.spark }),
-      h('span', {}, '当前场景 '),
-      h('b', {}, isTeacher() ? '教学' : '学习')
+      h('b', {}, isTeacher() ? '教学工作台' : '学习工作台')
     ),
     nav,
     h(
@@ -137,9 +136,9 @@ function topbar() {
     '/teacher/analytics': ['学习分析', '学习过程分析'],
     '/teacher/ability': ['学习分析', '能力与难度估计'],
     '/teacher/student': ['学习分析', '学生报告'],
-    '/teacher/reviews': ['分析与治理', '评审管理'],
-    '/teacher/anomalies': ['分析与治理', '异常评审检测'],
-    '/teacher/similarity': ['分析与治理', '代码相似度检测'],
+    '/teacher/reviews': ['评审与复核', '评审管理'],
+    '/teacher/anomalies': ['评审与复核', '异常评审检测'],
+    '/teacher/similarity': ['评审与复核', '代码相似度检测'],
     '/teacher/experiments': ['算法实验', '算法实验台'],
   };
   const key = Object.keys(map).sort((a, b) => b.length - a.length).find((k) => p.startsWith(k));
@@ -173,8 +172,7 @@ function topbar() {
       ? h('span', {
           class: 'badge badge--warn',
           style: { cursor: 'help' },
-          title: '当前是系统生成的演示数据（题目与测试数据是真实的，递交记录与互评评分是模拟的）。\n'
-            + '导入本班真实名单后，请删除 settings 表中的 demo_seed 记录。',
+          title: '当前使用示例班级和模拟评分。点击查看数据说明。',
           onclick: () => showDemoNotice(),
         }, '演示数据')
       : null,
@@ -388,13 +386,10 @@ const BACK_LABEL = {
 /** 「演示数据」说明弹窗：把真实与模拟的部分讲清楚。 */
 function showDemoNotice() {
   const rows = [
-    ['题目与测试数据', '真实', '题目取自课程题库，测试数据由参考程序生成'],
-    ['提交的代码', '真实', '题库里三种真实参考实现（正确 / 超时 / 有 bug）'],
-    ['判定与耗时', '真实', '真的编译运行过（教师端「重测」可复现）'],
-    ['互评评分', '模拟', '按「作业真实质量 + 评审者偏差 + 噪声」模型生成'],
-    ['异常检测结果', '真实', '对上述评分真实运行检测算法得出'],
-    ['统计与图表', '真实', '全部由算法对当前数据实时计算'],
-    ['你自己的提交', '完全真实', '真实编译运行，与模拟数据无关'],
+    ['题库与测试点', '课程资料', '用于练习算法设计、编程与分析'],
+    ['账号与历史提交', '示例', '示例班级中的账号、作答和提交记录'],
+    ['互评评分', '模拟', '模拟不同的打分习惯，便于查看评审流程'],
+    ['统计与检测', '计算结果', '根据上述示例记录计算，供体验和比较'],
   ];
   U.modal(
     '关于演示数据',
@@ -402,21 +397,20 @@ function showDemoNotice() {
       'div',
       {},
       h('p', { class: 'muted', style: { marginBottom: '14px', fontSize: '13px' } },
-        '当前展示的数据由 python backend/seed.py 生成（固定随机种子，可复现）。'
-        + '其中「记录」是模拟的，但「处理」都是真实算法——点开任意提交执行「重测」，结果与展示一致。'),
+        '当前展示示例班级，用于浏览题库、作业和评审流程。'),
       U.table(
         [
           { title: '内容', width: '130px', render: (r) => h('b', {}, r[0]) },
           {
             title: '性质', width: '90px',
-            render: (r) => U.badge(r[1], r[1] === '模拟' ? 'warn' : r[1] === '完全真实' ? 'brand' : 'ok'),
+            render: (r) => U.badge(r[1], r[1] === '模拟' || r[1] === '示例' ? 'warn' : 'neutral'),
           },
           { title: '说明', render: (r) => h('span', { class: 'small' }, r[2]) },
         ],
         rows,
         { dense: true }
       ),
-      U.note('导入本班真实名单后，执行 DELETE FROM settings WHERE key=\'demo_seed\' 即可去掉此提示。', 'ok')
+      U.note(state.demo ? '只读演示不会保存作答和评分。' : '示例成绩不作为课程考核依据。新提交的代码会进行实际评测。')
     ),
     { width: 660, actions: (close) => [U.btn('知道了', { tone: 'primary', onClick: close })] }
   );
@@ -619,7 +613,7 @@ async function boot() {
   router.start();
   if (state.demo) {
     setTimeout(
-      () => toast('未检测到后端，已切换到只读演示模式。本地运行 python run.py 可用完整功能。', 'warn', 6500),
+      () => toast('当前为只读演示，作答与评分不会保存。', 'info', 4500),
       600
     );
   }

@@ -79,7 +79,7 @@ export function renderTeacherDashboard({ dash, chapters }) {
     { class: 'launch' },
     h('div', { class: 'launch__head' },
       h('div', { class: 'launch__title' }, '教学看板'),
-      h('div', { class: 'launch__sub' }, (course.name || '算法设计与分析') + ' · 选择下面任意一个入口')),
+      h('div', { class: 'launch__sub' }, course.name || '算法设计与分析')),
     h('div', { class: 'launch__grid' },
       ...entries.map((e) =>
         h('a', { class: 'launch__item', href: e.href, title: e.hint },
@@ -118,7 +118,7 @@ export function renderAssignments({ assignments, problems, courses, chapters }) 
     {},
     U.pageHeader('作业管理', {
       eyebrow: 'ASSIGNMENTS',
-      sub: '创建作业、配置题目与评分规则、设置互评与截止时间；作业完成情况在这里统一查看。',
+      sub: '布置作业，查看提交与评审进度。',
       actions: U.btn('布置新作业', { tone: 'primary', icon: U.icon.plus, onClick: () => createAssignment(problems, courses, () => router.resolve(), null, chapters) }),
     }),
     h(
@@ -303,7 +303,7 @@ function createAssignment(problems, courses, onSaved, existing, chapters) {
           Object.entries(METHOD_LABEL).map(([k, v]) => ({ value: k, label: v })),
           { value: draft.aggregation_method, onchange: (e) => (draft.aggregation_method = e.target.value) }), { hint: '推荐「可信度动态加权(EM)」' }),
         U.field('互评截止时间', h('input', { class: 'input', type: 'datetime-local', value: (draft.review_due_at || '').replace(' ', 'T').slice(0, 16), oninput: (e) => (draft.review_due_at = e.target.value.replace('T', ' ') + ':00') })),
-        U.note('分配与聚合都可以在「评审过程管理」中随时重新执行，并用实验台对比不同方法的效果。', 'ok'))
+        U.note('保存后可在「评审管理」中分配互评任务。'))
     );
   }
   togglePeer();

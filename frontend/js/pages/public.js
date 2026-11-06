@@ -45,24 +45,23 @@ export async function renderLanding() {
     h(
       'div',
       {},
-      h('div', { class: 'landing__tag' }, '问题建模 · 算法设计 · 复杂度分析 · 实验验证'),
+      h('div', { class: 'landing__tag' }, h('span', { class: 'type-index' }, 'COURSE /'), '算法设计与分析'),
       h(
         'h1',
         { class: 'landing__title' },
-        '让每一次算法作业，',
+        '课程作业，',
         h('br'),
-        '都能被', h('em', {}, '公平而可信'), '地评价。'
+        h('em', {}, '与同学一起评。')
       ),
       h(
         'p',
         { class: 'landing__sub' },
-        '《算法设计与分析》课程评审平台。编程题自动编译评测，主观题匿名互评，'
-          + '分配、聚合与异常检测都由算法完成，并配有可复现的对比实验。'
+        '提交代码，查看测试结果；写下解题思路，交换评审意见。作业、课件和学习记录，都在这里。'
       ),
       h(
         'div',
         { class: 'landing__cta' },
-        h('a', { class: 'btn btn--lg btn--primary', href: '#/login' }, '开启工作台 →'),
+        h('a', { class: 'btn btn--lg btn--primary', href: '#/login' }, '进入课程 →'),
         h('a', { class: 'btn btn--lg btn--dark', href: '#/problems' }, '浏览题库')
       )
     ),
@@ -79,33 +78,27 @@ export async function renderLanding() {
   const pillars = h(
     'section',
     { class: 'landing__section' },
-    h('div', { class: 'landing__eyebrow' }, 'CORE ALGORITHMS'),
-    h('h2', { class: 'landing__h2' }, '六个核心算法，都拿实验数据说话。'),
+    h('div', { class: 'landing__eyebrow' }, '课程工具'),
+    h('h2', { class: 'landing__h2' }, '作答、互评与复习'),
     h(
       'div',
       { class: 'landing__cards' },
       card('01', '评审任务分配', '最小费用最大流 + 2-opt 局部搜索',
-        '「每人评 k 份、工作量上限 c、禁止自评」建成流网络，用平行凸费用弧做负载均衡，'
-        + '再局部搜索消除互为评审。60 人班级约 0.5 s，负载基尼系数为 0。'),
+        '按教师设置的评审份数分配任务，避开自评，并尽量均衡每位同学的工作量。'),
       card('02', '评分聚合', '可信度动态加权（EM 迭代）',
-        '交替估计作业真实分 sⱼ、评审者偏差 bᵢ 与可信度 wᵢ，'
-        + '用收缩抑制小样本过拟合。注入恶意评审的实验中 RMSE 比算术平均低 53.8%。'),
+        '汇总多位同学的评分，考虑打分习惯的差异。教师可以对照不同方法，查看每一条原始意见。'),
       card('03', '异常评审检测', '残差检验 + 稳健离群 + 关系图',
-        '残差 z 检验、偏差显著性检验、MAD 时长检测，'
-        + '再用关系图的互惠边与社区发现识别固定互评。查全率 0.93，查准率 0.80。')
+        '标记偏离较大的评分和异常互评关系，供教师复核。检测结果不直接认定违规。')
     ),
     h(
       'div',
       { class: 'landing__cards', style: { marginTop: '18px' } },
       card('04', '学生能力与题目难度', '1PL/2PL IRT + ELO 增量',
-        '1PL Rasch 联合估计能力 θ 与难度 b，与 ELO 对照。'
-        + '本课程规模下 1PL 的 θ 与真值相关系数 0.87，优于放开区分度的 2PL（0.81）。'),
+        '从提交记录中查看知识点掌握情况，对照班级平均，安排下一步练习。'),
       card('05', '代码相似度检测', 'Winnowing 指纹 + 倒排索引',
-        'token 规范化 → 滚动哈希 → 窗口最小哈希指纹 → 倒排索引 → 并查集聚类。'
-        + '60 份代码 9 ms，变量改名、加注释仍能命中。'),
+        '比较代码结构，列出相似片段，方便教师结合具体解法逐份查看。'),
       card('06', '复杂度自动判定', '对数空间最小二乘拟合',
-        '多规模实测耗时，在对数空间拟合 {1, log n, n, n log n, n², n³, 2ⁿ}，'
-        + '并给出倍增比与经验指数。实测：双重循环→O(n²)，归并→O(n log n)。')
+        '换一组输入规模，观察运行时间的变化。在实验台中对照复杂度曲线与实测数据。')
     )
   );
 
@@ -113,7 +106,7 @@ export async function renderLanding() {
     'footer',
     { class: 'landing__foot' },
     h('span', {}, '涅槃 · 算法设计与分析课程评审平台'),
-    h('span', {}, 'python run.py 即可本地运行')
+    h('span', {}, '课程作业 · 代码评测 · 同伴互评')
   );
 
   return h('div', { class: 'landing' }, nav, hero, pillars, foot);
@@ -127,7 +120,7 @@ function card(idx, title, tech, desc) {
   return h(
     'div',
     { class: 'landing__card' },
-    h('div', { class: 'idx' }, idx + ' / ' + tech),
+    h('div', { class: 'idx' }, h('span', { class: 'type-index' }, idx), h('span', { class: 'landing__tech' }, tech)),
     h('h3', {}, title),
     h('p', {}, desc)
   );
@@ -136,8 +129,8 @@ function card(idx, title, tech, desc) {
 /* ------------------------------------------------------------- 登录 */
 
 const ROLES = [
-  { key: 'student', title: '学生', sub: '助学 · 提交与互评', icon: '✦' },
-  { key: 'teacher', title: '教师', sub: '助教 · 教学与治理', icon: '◈' },
+  { key: 'student', title: '学生', sub: '作业与互评', icon: '✦' },
+  { key: 'teacher', title: '教师', sub: '课程与评审管理', icon: '◈' },
   { key: 'ta', title: '助教', sub: '协助批改与复核', icon: '◇' },
   { key: 'demo', title: '访客', sub: '只读体验演示数据', icon: '◎' },
 ];
@@ -236,8 +229,8 @@ export function renderLogin() {
       'div',
       { class: 'login__card' },
       h('div', { class: 'small', style: { color: 'var(--brand)', letterSpacing: '.14em' } }, '账号登录'),
-      h('h2', {}, '登录涅槃'),
-      h('p', { class: 'sub' }, '选择身份并使用已注册的账号进入对应工作台'),
+      h('h2', {}, '登录课程'),
+      h('p', { class: 'sub' }, '选择身份，输入账号和密码。'),
       roleGrid,
       h('div', { class: 'col', style: { gap: '14px' } },
         h('label', { class: 'field' }, h('span', { class: 'field__label' }, '账号 / 邮箱'), email),
@@ -278,22 +271,21 @@ export function renderLogin() {
     h(
       'h1',
       { class: 'login__title' },
-      '把每一次',
+      '算法设计与分析',
       h('br'),
-      h('em', {}, '算法设计与分析'),
-      '，变成可验证的结果。'
+      h('em', {}, '课程工作台')
     ),
     h(
       'p',
       { class: 'login__sub' },
-      '编程题自动评测，主观题匿名互评。分配、聚合、异常检测都由算法完成。'
+      '做作业、看课件，也看看同学的另一种解法。'
     ),
     h(
       'div',
       { class: 'login__steps' },
-      h('div', { class: 'login__step' }, h('i', {}, '01'), h('b', {}, '提交'), h('span', {}, '自动评测')),
-      h('div', { class: 'login__step' }, h('i', {}, '02'), h('b', {}, '互评'), h('span', {}, '匿名分配')),
-      h('div', { class: 'login__step' }, h('i', {}, '03'), h('b', {}, '结果'), h('span', {}, '动态加权'))
+      h('div', { class: 'login__step' }, h('i', {}, '01'), h('b', {}, '作答'), h('span', {}, '提交代码与思路')),
+      h('div', { class: 'login__step' }, h('i', {}, '02'), h('b', {}, '互评'), h('span', {}, '交流解法与建议')),
+      h('div', { class: 'login__step' }, h('i', {}, '03'), h('b', {}, '回看'), h('span', {}, '查看成绩与反馈'))
     )
   );
 
@@ -346,7 +338,7 @@ export function renderRegister() {
   const roleGrid = h('div', { class: 'role-grid' },
     ...[
       { key: 'student', title: '学生', sub: '加入课程 · 提交与互评', icon: '✦' },
-      { key: 'teacher', title: '教师', sub: '开设课程 · 教学与治理', icon: '◈' },
+      { key: 'teacher', title: '教师', sub: '开课与布置作业', icon: '◈' },
     ].map((r) => h('button', {
       type: 'button',
       class: ['role-tile', role === r.key ? 'is-active' : ''],
