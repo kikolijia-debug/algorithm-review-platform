@@ -624,6 +624,8 @@ def api_anomalies(ctx):
     weights = {"high": 22, "medium": 11, "low": 4}
     stats = {}
     for r in rows:
+        if r["status"] != "open":
+            continue
         rid = r["reviewer_id"]
         if not rid:
             continue
@@ -642,9 +644,9 @@ def api_anomalies(ctx):
         "anomalies": rows,
         "reviewer_risk": sorted(stats.values(), key=lambda x: -x["risk"]),
         "counts": {
-            "high": sum(1 for r in rows if r["level"] == "high"),
-            "medium": sum(1 for r in rows if r["level"] == "medium"),
-            "low": sum(1 for r in rows if r["level"] == "low"),
+            "high": sum(1 for r in rows if r["level"] == "high" and r["status"] == "open"),
+            "medium": sum(1 for r in rows if r["level"] == "medium" and r["status"] == "open"),
+            "low": sum(1 for r in rows if r["level"] == "low" and r["status"] == "open"),
             "open": sum(1 for r in rows if r["status"] == "open"),
         },
     })

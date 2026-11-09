@@ -109,6 +109,38 @@ class Workflows(unittest.TestCase):
                 "results": [{"test_case_id": 1, "name": "sample", "verdict": "AC",
                              "time_ms": 1, "memory_kb": 1000, "actual": "3", "message": ""}]}
 
+    def test_handled_anomalies_leave_pending_risk_and_stay_closed(self):
+        from backend.api import AN
+        an = db.ex("INSERT INTO anomalies(assignment_id,reviewer_id,type,level,title,detected_at) VALUES(?,?,?,?,?,?)",
+                   (self.aid, self.rid, "bias", "high", "test", db.now()))
+        initial = self.call("/api/anomalies", token=self.t)
+        self.assertEqual(initial["counts"]["high"], 1)
+        self.assertEqual(len(initial["reviewer_risk"]), 1)
+        self.call(f"/api/anomalies/{an}/handle", {"status": "dismissed"}, self.t)
+        after = self.call("/api/anomalies", token=self.t)
+        self.assertEqual(after["counts"]["open"], 0)
+        self.assertEqual(after["counts"]["high"], 0)
+        self.assertEqual(after["reviewer_risk"], [])
+        self.assertEqual(after["anomalies"][0]["status"], "dismissed")
+        self.task(score=75, reviewer=self.rid, author=self.uid)
+        detected = {"anomalies": [{"type": "bias", "level": "high", "reviewer_id": self.rid,
+                    "title": "test", "detail": "test", "suggestion": "test"}]}
+        with patch.object(AN, "detect", return_value=detected):
+            self.call(f"/api/assignments/{self.aid}/aggregate", {}, self.t)
+        self.assertEqual(self.call("/api/anomalies?status=open", token=self.t)["anomalies"], [])
+
+    def test_seed_scores_match_rubric_and_total(self):
+        import random
+        from backend.seed import Seeder
+        from backend.api import default_code_rubric
+        maker = Seeder(verbose=False)
+        rubric = default_code_rubric()
+        for total in (0, 1.1, 63.04, 74.1, 99.9, 100):
+            scores = maker._rubric(total, random.Random(7), rubric)
+            self.assertEqual(set(scores), {r["key"] for r in rubric})
+            self.assertAlmostEqual(sum(scores.values()), round(total, 1))
+            self.assertTrue(all(0 <= scores[r["key"]] <= r["max"] for r in rubric))
+
     def test_no_course_is_empty(self):
         for path in ("/api/problems", "/api/assignments", "/api/notices", "/api/subjective"):
             self.assertEqual(self.call(path, token=self.unjoined), [])

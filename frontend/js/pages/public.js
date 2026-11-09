@@ -32,7 +32,7 @@ export async function renderLanding() {
       'div',
       { class: 'landing__brand' },
       logo(38),
-      h('div', {}, h('b', {}, '涅槃'), h('span', {}, '算法设计与分析 · 课程评审平台'))
+      h('div', {}, h('b', {}, '算法设计与分析'), h('span', {}, '算法设计与分析 · 课程评审平台'))
     ),
     h('div', { class: 'grow' }),
     h('a', { class: 'btn btn--ghost', href: '#/problems' }, '题库'),
@@ -105,7 +105,7 @@ export async function renderLanding() {
   const foot = h(
     'footer',
     { class: 'landing__foot' },
-    h('span', {}, '涅槃 · 算法设计与分析课程评审平台'),
+    h('span', {}, '算法设计与分析课程评审平台'),
     h('span', {}, '课程作业 · 代码评测 · 同伴互评')
   );
 
@@ -155,7 +155,7 @@ export function renderLogin() {
             onclick: () => {
               role = r.key;
               paintRoles();
-              submit.textContent = r.key === 'student' ? '登录学习工作台' : r.key === 'teacher' ? '登录教学工作台' : r.key === 'ta' ? '登录助教工作台' : '进入只读演示';
+              submit.textContent = r.key === 'student' ? '登录学生端' : r.key === 'teacher' ? '登录教师端' : r.key === 'ta' ? '登录助教端' : '进入只读演示';
             },
           },
           h('b', {}, r.icon + ' ' + r.title),
@@ -165,7 +165,7 @@ export function renderLogin() {
       );
     });
     submit.textContent =
-      role === 'student' ? '登录学习工作台' : role === 'teacher' ? '登录教学工作台' : role === 'ta' ? '登录助教工作台' : '进入只读演示';
+      role === 'student' ? '登录学生端' : role === 'teacher' ? '登录教师端' : role === 'ta' ? '登录助教端' : '进入只读演示';
   };
   paintRoles();
 
@@ -181,7 +181,7 @@ export function renderLogin() {
       const r = await api.post('/api/auth/login', { username: 'teacher', password: '123456', role: 'teacher' });
       applySession(r);
       ok('已进入只读演示模式');
-      router.navigate('/teacher');
+      router.navigate('/teacher/work');
       return;
     }
     const username = email.value.trim();
@@ -198,7 +198,7 @@ export function renderLogin() {
       });
       applySession(r);
       ok('欢迎回来，' + r.user.name);
-      router.navigate(r.user.role === 'student' ? '/student' : '/teacher');
+      router.navigate(r.user.role === 'student' ? '/problems' : '/teacher/work');
     } catch (e) {
       showError(e.message);
       fail(e.message);
@@ -266,14 +266,14 @@ export function renderLogin() {
       'div',
       { class: 'login__brand' },
       logo(38),
-      h('div', {}, h('b', { style: { color: '#eafaf3' } }, '涅槃'), h('span', { style: { color: '#6d8b80', fontSize: '11px', letterSpacing: '.1em' } }, '算法评审平台'))
+      h('div', {}, h('b', { style: { color: '#eafaf3' } }, '算法设计与分析'), h('span', { style: { color: '#6d8b80', fontSize: '11px', letterSpacing: '.1em' } }, '算法评审平台'))
     ),
     h(
       'h1',
       { class: 'login__title' },
       '算法设计与分析',
       h('br'),
-      h('em', {}, '课程工作台')
+      h('em', {}, '课程评审平台')
     ),
     h(
       'p',
@@ -352,7 +352,7 @@ export function renderRegister() {
     }, h('b', {}, r.icon + ' ' + r.title), h('span', {}, r.sub))));
   paintExtra();
 
-  const submit = h('button', { class: 'btn btn--primary btn--block' }, '注册并进入工作台');
+  const submit = h('button', { class: 'btn btn--primary btn--block' }, '注册并进入课程');
   submit.onclick = async () => {
     const body = {
       role, name: name.value.trim(), username: username.value.trim(),
@@ -376,13 +376,13 @@ export function renderRegister() {
       } else {
         ok('注册成功，欢迎 ' + r.user.name);
       }
-      router.navigate(r.user.role === 'student' ? '/student' : '/teacher');
+      router.navigate(r.user.role === 'student' ? '/problems' : '/teacher/work');
     } catch (e) {
       errBox.textContent = e.message;
       errBox.style.display = '';
     } finally {
       submit.disabled = false;
-      submit.textContent = '注册并进入工作台';
+      submit.textContent = '注册并进入课程';
     }
   };
 
@@ -393,7 +393,7 @@ export function renderRegister() {
       'div',
       { class: 'login__card' },
       h('div', { class: 'small', style: { color: 'var(--brand)', letterSpacing: '.14em' } }, '创建账号'),
-      h('h2', {}, '注册涅槃'),
+      h('h2', {}, '注册课程账号'),
       h('p', { class: 'sub' }, '教师注册后自动创建自己的课程，学生凭邀请码加入班级'),
       roleGrid,
       h('div', { class: 'col', style: { gap: '14px' } },
@@ -417,7 +417,7 @@ export function renderRegister() {
     { class: 'login__left' },
     h('div', { class: 'login__brand' },
       logo(38),
-      h('div', {}, h('b', { style: { color: '#eafaf3' } }, '涅槃'),
+      h('div', {}, h('b', { style: { color: '#eafaf3' } }, '算法设计与分析'),
         h('span', { style: { color: '#6d8b80', fontSize: '11px', letterSpacing: '.1em' } }, '算法评审平台'))),
     h('h1', { class: 'login__title' }, '把自己的班级', h('br'), h('em', {}, '搬进平台'), '，马上开课。'),
     h('p', { class: 'login__sub' },

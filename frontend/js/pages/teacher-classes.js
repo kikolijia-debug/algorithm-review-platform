@@ -139,19 +139,20 @@ function classCard(c, allClasses, courseId, refresh) {
 
 /* ------------------------------------------------------------ 课程通知 */
 
-function noticeCard(notices) {
+function noticeCard(notices, full = false) {
   return U.card(
     U.cardHead('课程通知', {
-      sub: '学生登录后在学习动态里看到',
+      sub: '学生可在课程通知中查看',
       actions: U.btn('发布通知', { tone: 'soft', size: 'sm', onClick: () => publishNotice() }),
     }),
     notices.length
-      ? h('div', {}, ...notices.slice(0, 6).map((n) =>
+      ? h('div', {}, ...(full ? notices : notices.slice(0, 6)).map((n) =>
           h('div', { class: 'mini-row' },
             n.kind === 'assignment' ? U.badge('作业', 'brand') : null,
             h('span', { class: 'grow' }, h('b', {}, n.title),
               h('div', { class: 'small muted' }, n.content)),
             h('span', { class: 'mini-row__time' }, U.timeAgo(n.created_at)),
+            n.assignment_id ? h('a', { class: 'btn btn--soft btn--xs', href: '#/teacher/assignment/' + n.assignment_id }, '查看作业') : null,
             h('button', {
               class: 'btn btn--plain btn--xs',
               title: '撤回这条通知',
@@ -170,7 +171,7 @@ function noticeCard(notices) {
                 } catch (e) { fail(e.message); }
               },
             }, '撤回'))))
-      : U.empty('暂无通知', '发布后学生会在学习动态里看到。')
+      : U.empty('暂无通知', '发布后学生可在课程通知中查看。')
   );
 }
 
@@ -521,4 +522,19 @@ function openAddStudents(targetClass, allClasses, candidates, onDone) {
       ],
     }
   );
+}
+
+export async function loadNotices(ctx) {
+  const offset = Math.max(0, Number(ctx.query.offset) || 0);
+  const rows = await api.get('/api/notices', { limit: 30, offset });
+  return { rows, offset };
+}
+
+export function renderNotices({ rows, offset }) {
+  return h('div', {}, U.pageHeader('课程通知', { sub: '发布课程安排，查看作业通知。' }),
+    noticeCard(rows, true),
+    h('div', { class: 'row mt16' },
+      U.btn('上一页', { tone: 'ghost', disabled: offset === 0, onClick: () => router.navigate('/teacher/notices?offset=' + Math.max(0, offset - 30)) }),
+      h('span', { class: 'small muted' }, '第 ' + (Math.floor(offset / 30) + 1) + ' 页'),
+      U.btn('下一页', { tone: 'ghost', disabled: rows.length < 30, onClick: () => router.navigate('/teacher/notices?offset=' + (offset + 30)) })));
 }

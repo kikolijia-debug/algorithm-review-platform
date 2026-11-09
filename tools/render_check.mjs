@@ -192,9 +192,9 @@ const closed = doc.body.children.length;
 check('点头像打开菜单，再点一次收起',
   opened === before + 1 && closed === before, `菜单数 ${before} -> ${opened} -> ${closed}`);
 check('学生菜单里没有「我的资料」（只给教师/助教）',
-  menuText.includes('我的工作台') && !menuText.includes('我的资料'), menuText);
-check('菜单包含 我的工作台 / 返回首页 / 退出登录',
-  menuText.includes('我的工作台') && menuText.includes('返回首页')
+  !menuText.includes('我的工作台') && !menuText.includes('我的资料'), menuText);
+check('学生菜单移除工作台，保留 返回首页 / 退出登录',
+  !menuText.includes('工作台') && menuText.includes('返回首页')
   && menuText.includes('退出登录'), menuText);
 
 // 主观题回填、草稿保存与作业归属必须经过实际 DOM 事件。
@@ -220,6 +220,41 @@ check('未选择所属作业时禁止主观题提交', find(noAssignment, (n) =>
 appStore.state.user = { id: 999, role: 'student' };
 proofNode = problemPage.renderProblem({ problem: { ...proof, my_subjective: null }, meta: {} });
 check('浏览器草稿按账号隔离', find(proofNode, (n) => n.tagName === 'TEXTAREA')[0].value === '');
+
+
+// Hidden dimensions from an old rubric must not increase either total or submitted score.
+const codeRubric = [
+  { key: 'correctness', name: '正确性', max: 35 }, { key: 'complexity', name: '复杂度', max: 25 },
+  { key: 'clarity', name: '可读性', max: 20 }, { key: 'robustness', name: '健壮性', max: 20 },
+];
+const reviewNode = student.renderReviewTask({ task: {
+  allocation_id: 123, kind: 'code', rubric: codeRubric,
+  my_review: { scores: { correctness: 23.3, complexity: 22.8, clarity: 14, robustness: 14, idea: 25, writing: 20 }, comment: '代码边界处理清楚，建议补充复杂度分析。' },
+}, startedAt: '2026-11-09T10:00:00' });
+check('旧评分隐藏项不计总分：四项合计 74.1', find(reviewNode, (n) => n.tagName === 'SPAN' && textOf(n) === '74.1').length > 0 && !reviewNode.textContent.includes('119.1'));
+check('小数评分控件保留 0.1 分精度', find(reviewNode, (n) => n.tagName === 'INPUT' && n.attrs.type === 'range').every((n) => Number(n.attrs.step) === 0.1));
+let payload;
+ctx.fetch = async (_url, options) => { payload = JSON.parse(options.body); return { ok: true, text: async () => '{"data":{}}' }; };
+const send = find(reviewNode, (n) => n.tagName === 'BUTTON' && textOf(n).includes('提交评审'))[0];
+await send.listeners.click[0]({ target: { closest: () => send } });
+check('提交只发送当前细则字段', payload && Object.keys(payload.scores).length === 4 && !('idea' in payload.scores) && Math.abs(Object.values(payload.scores).reduce((a,b) => a+b,0) - 74.1) < 1e-8);
+for (const range of find(reviewNode, (n) => n.tagName === 'INPUT' && n.attrs.type === 'range')) range.listeners.input[0]({ target: { value: '0' } });
+payload = null;
+await send.listeners.click[0]({ target: { closest: () => send } });
+check('全零评分可正常提交', payload && Object.values(payload.scores).every((v) => v === 0));
+appStore.state.user = { id: 1, role: 'teacher', name: '教师' };
+ctx.location.hash = '#/teacher/reviews';
+const teacherShell = app.renderShell();
+const teacherRoot = doc.getElementById('app');
+check('教师铃铛指向课程通知', !!find(teacherRoot, (n) => n.tagName === 'BUTTON' && n.attrs.title === '课程通知')[0]);
+check('教师侧栏移除教学工作台和看板', !teacherRoot.textContent.includes('工作台') && !teacherRoot.textContent.includes('教学看板'));
+check('详情路由只归属一个侧栏入口', app.navOwner('/teacher/assignment/1') === '/teacher/work' && app.navOwner('/teacher/anomalies') === '/teacher/reviews');
+const insight = (await loadModule('frontend/js/pages/teacher-insight.js')).namespace;
+const anomalyNode = insight.renderAnomalies({ assignments: [], data: { counts: { high: 1, medium: 0, low: 0, open: 1 }, reviewer_risk: [], anomalies: [
+  { id: 1, level: 'high', type: 'bias', status: 'open', title: '待处理测试记录' },
+  { id: 2, level: 'high', type: 'bias', status: 'dismissed', title: '已排除测试记录' },
+] } });
+check('异常复核默认只显示待处理记录', anomalyNode.textContent.includes('待处理测试记录') && !anomalyNode.textContent.includes('已排除测试记录'));
 
 const dataset = JSON.parse(fs.readFileSync(path.join(ROOT, 'frontend/demo/dataset.json'), 'utf8'));
 ctx.fetch = async () => ({ ok: true, json: async () => dataset });

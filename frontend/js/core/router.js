@@ -7,6 +7,7 @@ let current = null;
 //: 浏览轨迹：用于「← 返回上一页」，比按层级猜更符合老师的使用直觉
 let trail = [];
 let lastPath = null;
+let returning = false;
 
 export function register(pattern, handler, meta = {}) {
   const names = [];
@@ -54,10 +55,11 @@ export function navigate(path, { replace = false } = {}) {
 }
 
 function remember(p) {
-  if (lastPath && lastPath !== p) {
+  if (!returning && lastPath && lastPath !== p) {
     trail.push(lastPath);
     if (trail.length > 40) trail.shift();
   }
+  returning = false;
   lastPath = p;
 }
 
@@ -77,7 +79,7 @@ export function resolve() {
       const ctx = { path: p, params, query, meta: r.meta, render: r.handler };
       if (beforeEach && beforeEach(ctx) === false) return;
       current = ctx;
-      remember(p);
+      remember(path());
       r.handler(ctx);
       window.scrollTo({ top: 0 });
       return;
@@ -95,7 +97,7 @@ export function start() {
 export function previousPath(fallback = null) {
   const now = path().split('?')[0];
   for (let i = trail.length - 1; i >= 0; i--) {
-    if (trail[i] !== now) return trail[i];
+    if (trail[i].split('?')[0] !== now) return trail[i];
   }
   return fallback;
 }
@@ -104,6 +106,9 @@ export function previousPath(fallback = null) {
 export function back(fallback = null) {
   const target = previousPath(fallback);
   if (!target) return false;
+  const index = trail.lastIndexOf(target);
+  if (index >= 0) trail.splice(index);
+  returning = true;
   navigate(target, { replace: true });
   return true;
 }

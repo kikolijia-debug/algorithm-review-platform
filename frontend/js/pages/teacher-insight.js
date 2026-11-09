@@ -222,6 +222,8 @@ export function renderAnalytics({ klass, knowledge, timeline, ability }, contain
     const r = panes[k]();
     tabsBox.appendChild(r instanceof Node ? r : r);
   };
+  const selectedTab = router.currentRoute()?.query?.tab;
+  const initialTab = Object.hasOwn(panes, selectedTab) ? selectedTab : 'overview';
   const tabBar = U.tabs(
     [
       { key: 'overview', label: '班级总览' },
@@ -230,9 +232,12 @@ export function renderAnalytics({ klass, knowledge, timeline, ability }, contain
       { key: 'timeline', label: '提交时间线' },
       ...extraTabs.map((t) => ({ key: t.key, label: t.label })),
     ],
-    { onChange: show }
+    { value: initialTab, onChange: (tab) => {
+      const route = router.currentRoute();
+      router.navigate(route.path + '?' + new URLSearchParams({ ...route.query, tab }), { replace: true });
+    } }
   );
-  show('overview');
+  show(initialTab);
   return h('div', {},
     U.pageHeader('学习过程分析', {
       eyebrow: 'LEARNING ANALYTICS',
@@ -931,7 +936,7 @@ export function renderReviewAdmin({ assignments, selected, allocs, results, anom
                 { title: '评审者', width: '110px', render: (a) => a.reviewer_name || '#' + a.reviewer_id },
                 { title: '说明', render: (a) => a.detail },
               ],
-              anomalies.anomalies.slice(0, 12), { dense: true })
+              anomalies.anomalies.filter((a) => a.status === 'open').slice(0, 12), { dense: true })
           )
         : null
     );
@@ -939,6 +944,8 @@ export function renderReviewAdmin({ assignments, selected, allocs, results, anom
 
   const panes = { alloc: allocPane, result: resultPane, reviewer: reviewerPane };
   extraTabs.forEach((t) => (panes[t.key] = t.render));
+  const activeTab = router.currentRoute()?.query?.tab;
+  const initialTab = Object.hasOwn(panes, activeTab) ? activeTab : 'alloc';
   const show = (k) => {
     clear(pane);
     const node = panes[k]();
@@ -951,16 +958,19 @@ export function renderReviewAdmin({ assignments, selected, allocs, results, anom
       { key: 'reviewer', label: '可信度与异常' },
       ...extraTabs.map((t) => ({ key: t.key, label: t.label, badge: t.badge })),
     ],
-    { onChange: show }
+    { value: initialTab, onChange: (key) => {
+      const route = router.currentRoute();
+      router.navigate(route.path + '?' + new URLSearchParams({ ...route.query, tab: key }), { replace: true });
+    } }
   );
-  show('alloc');
+  show(initialTab);
 
   const selector = h(
     'div',
     { class: 'filterbar' },
     U.select(
       assignments.map((a) => ({ value: a.id, label: a.title + '（' + a.problems.length + ' 题）' })),
-      { value: selected, onchange: (e) => router.navigate('/teacher/reviews?assignment_id=' + e.target.value) }
+      { value: selected, onchange: (e) => router.navigate('/teacher/reviews?' + new URLSearchParams({ ...router.currentRoute().query, assignment_id: e.target.value })) }
     ),
     current ? U.badge(`每份 ${current.reviews_per_submission} 份评审`, 'brand') : null,
     current ? U.badge(`每人最多 ${current.max_load} 份`, 'neutral') : null,
@@ -1091,7 +1101,7 @@ export async function loadAnomalies(ctx) {
 
 export function renderAnomalies({ assignments, data }) {
   let level = '';
-  let status = '';
+  let status = 'open';
   const box = h('div');
   const paint = () => {
     const rows = (data.anomalies || []).filter(
@@ -1127,7 +1137,7 @@ export function renderAnomalies({ assignments, data }) {
       confirmed: {
         title: '确认这条异常评审',
         message: `确认后系统会记录「${a.reviewer_name || '#' + a.reviewer_id}」存在异常评分行为，`
-          + '该评审者在后续聚合中的权重会被下调，并保留处理痕迹。',
+          + '这条记录将移出待复核列表；如需影响成绩，请另行调整权重。',
         confirmText: '确认异常',
       },
       dismissed: {
@@ -1266,7 +1276,7 @@ export function renderAnomalies({ assignments, data }) {
       U.select([{ value: '', label: '全部级别' }, { value: 'high', label: '高风险' }, { value: 'medium', label: '中风险' }, { value: 'low', label: '低风险' }],
         { onchange: (e) => { level = e.target.value; paint(); } }),
       U.select([{ value: '', label: '全部状态' }, { value: 'open', label: '待复核' }, { value: 'confirmed', label: '已确认' }, { value: 'dismissed', label: '已排除' }, { value: 'adjusted', label: '已修正' }],
-        { onchange: (e) => { status = e.target.value; paint(); } })),
+        { value: status, onchange: (e) => { status = e.target.value; paint(); } })),
     box
   );
 }

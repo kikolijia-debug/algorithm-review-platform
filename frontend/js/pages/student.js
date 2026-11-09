@@ -968,20 +968,21 @@ export function renderMyClass(data) {
 
 /* ======================================================== 全部通知 */
 
-export async function loadNotices() {
-  const rows = await api.get('/api/notices');
+export async function loadNotices(ctx) {
+  const offset = Math.max(0, Number(ctx?.query?.offset) || 0);
+  const rows = await api.get('/api/notices', { limit: 30, offset });
   markNoticesSeen(Math.max(0, ...(rows || []).map((n) => n.id || 0)));
-  return rows || [];
+  return { rows: rows || [], offset };
 }
 
-export function renderNotices(rows) {
+export function renderNotices({ rows, offset = 0 }) {
   return h(
     'div',
     {},
     U.pageHeader('全部通知', {
       eyebrow: 'NOTIFICATIONS',
       sub: '教师发布的作业与站内消息，按时间倒序',
-      actions: h('a', { class: 'btn btn--ghost btn--sm', href: '#/student' }, '返回工作台'),
+      actions: h('a', { class: 'btn btn--ghost btn--sm', href: '#/problems' }, '返回题库'),
     }),
     rows.length
       ? h('div', { class: 'col', style: { gap: '10px' } }, ...rows.map((n) =>
@@ -995,14 +996,18 @@ export function renderNotices(rows) {
             n.assignment_id
               ? h('a', { class: 'btn btn--soft btn--xs', href: `#/student/assignment/${n.assignment_id}` }, '查看作业')
               : null)))
-      : U.empty('还没有通知', '教师发布作业或发送通知后会出现这里。')
+      : U.empty('还没有通知', '教师发布作业或发送通知后会出现这里。'),
+    h('div', { class: 'row mt16' },
+      U.btn('上一页', { tone: 'ghost', disabled: offset === 0, onClick: () => router.navigate('/student/notices?offset=' + Math.max(0, offset - 30)) }),
+      h('span', { class: 'small muted' }, '第 ' + (Math.floor(offset / 30) + 1) + ' 页'),
+      U.btn('下一页', { tone: 'ghost', disabled: rows.length < 30, onClick: () => router.navigate('/student/notices?offset=' + (offset + 30)) }))
   );
 }
 
 export function renderReviewTask({ task, startedAt }) {
   const scores = {};
   let comment = task.my_review ? task.my_review.comment || '' : '';
-  if (task.my_review) Object.assign(scores, task.my_review.scores || {});
+  const savedScores = task.my_review?.scores || {};
   const totalBox = h('span', { class: 'rubric-item__score' }, '0');
   const sections = task.sections || [];
   const content = task.content || {};
@@ -1077,13 +1082,16 @@ export function renderReviewTask({ task, startedAt }) {
     { key: 'writing', name: '表达与规范', max: 20, desc: '结构完整、术语准确' },
   ]).filter((r) => r && r.key);
 
+  const legacyRubric = task.my_review && (Object.keys(savedScores).length !== rubric.length || rubric.some((r) => !Object.hasOwn(savedScores, r.key)));
   const right = U.card(
+    legacyRubric ? U.note('评分细则已更新，请按当前各项重新核对后提交。本次提交将使用当前评分细则。', 'warn') : null,
     U.cardHead('评分与意见', { sub: '按统一细则逐项给分', actions: h('span', { class: 'rubric-item__score' }, totalBox) }),
     h('div', {}, ...rubric.map((r) => {
-      if (scores[r.key] == null) scores[r.key] = Math.round(r.max * 0.7);
+      const saved = savedScores[r.key];
+      scores[r.key] = saved != null && Number.isFinite(Number(saved)) ? Math.max(0, Math.min(r.max, Number(saved))) : Math.round(r.max * 0.7);
       const val = h('span', { class: 'rubric-item__score' }, scores[r.key]);
       const range = h('input', {
-        class: 'range', type: 'range', min: 0, max: r.max, step: 1, value: scores[r.key],
+        class: 'range', type: 'range', min: 0, max: r.max, step: 0.1, value: scores[r.key],
         oninput: (e) => {
           scores[r.key] = Number(e.target.value);
           val.textContent = e.target.value;
@@ -1106,7 +1114,7 @@ export function renderReviewTask({ task, startedAt }) {
         tone: 'primary', icon: U.icon.check,
         onClick: async (e) => {
           const total = Object.values(scores).reduce((a, b) => a + Number(b || 0), 0);
-          if (Object.values(scores).every((v) => Number(v) === 0)) return fail('请先完成评分细则');
+          if (rubric.some((r) => !Number.isFinite(scores[r.key]) || scores[r.key] < 0 || scores[r.key] > r.max)) return fail('请检查各项评分范围');
           if (comment.trim().length < 10) return fail('请给出至少 10 个字的文字意见');
           const btn = e.target.closest('button');
           btn.disabled = true;
@@ -1186,7 +1194,7 @@ export function renderReport({ report, knowledge, ability }) {
         { class: 'report-head__brand' },
         h('span', { class: 'report-head__logo', html: U.logoSvg('rp') }),
         h('div', {},
-          h('b', {}, '涅槃 · 算法设计与分析课程评审平台'),
+          h('b', {}, '算法设计与分析课程评审平台'),
           h('span', {}, '学习报告 LEARNING REPORT'))
       ),
       h(
@@ -1269,7 +1277,7 @@ export function renderReport({ report, knowledge, ability }) {
     ),
     // 页脚只在打印/导出时出现
     h('div', { class: 'report-foot' },
-      '涅槃 · 本课程学习记录')
+      '算法设计与分析 · 本课程学习记录')
   );
 }
 

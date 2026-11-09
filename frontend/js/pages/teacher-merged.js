@@ -17,10 +17,13 @@ import * as TI from './teacher-insight.js';
 import * as S from './student.js';
 import * as TC from './teacher-classes.js';
 import * as M from './materials.js';
+import * as router from '../core/router.js';
 
 /** 把一个页面的多个视图做成标签页；每个视图渲染完整的子页面。 */
 function merged(tabs, container) {
   const pane = h('div');
+  const selected = router.currentRoute()?.query?.tab;
+  const initial = tabs.some((t) => t.key === selected) ? selected : tabs[0].key;
   const show = (key) => {
     clear(pane);
     const tab = tabs.find((x) => x.key === key) || tabs[0];
@@ -28,9 +31,12 @@ function merged(tabs, container) {
   };
   const bar = U.tabs(
     tabs.map((t) => ({ key: t.key, label: t.label, badge: t.badge })),
-    { onChange: show }
+    { value: initial, onChange: (tab) => {
+      const route = router.currentRoute();
+      router.navigate(route.path + '?' + new URLSearchParams({ ...route.query, tab }), { replace: true });
+    } }
   );
-  show(tabs[0].key);
+  show(initial);
   return h('div', {}, bar, pane);
 }
 

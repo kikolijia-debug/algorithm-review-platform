@@ -26,7 +26,7 @@ const NAV = {
     {
       group: '工作区',
       items: [
-        { label: '学习动态', path: '/student', icon: icon.spark, badge: 'noticeUnread' },
+        { label: '课程通知', path: '/student/notices', icon: icon.bell, badge: 'noticeUnread' },
         { label: '题库与作业', path: '/problems', icon: icon.book },
         { label: '课程资源', path: '/materials', icon: icon.doc },
         { label: '我的班级', path: '/student/class', icon: icon.users },
@@ -40,7 +40,7 @@ const NAV = {
     {
       group: '教学',
       items: [
-        { label: '教学看板', path: '/teacher', icon: icon.spark },
+        { label: '课程通知', path: '/teacher/notices', icon: icon.bell },
         { label: '作业与题库', path: '/teacher/work', icon: icon.book },
         { label: '班级与学生', path: '/teacher/students', icon: icon.users },
         { label: '课程资源', path: '/materials', icon: icon.doc },
@@ -59,6 +59,24 @@ const NAV = {
 
 /* --------------------------------------------------------------- 外壳 */
 
+export function navOwner(p) {
+  if (/^\/teacher\/(assignments|assignment|work)(\/|$)/.test(p) || (isTeacher() && /^\/problems?$/.test(p))) return '/teacher/work';
+  if (/^\/teacher\/(students|classes|submissions)(\/|$)/.test(p)) return '/teacher/students';
+  if (/^\/teacher\/(reviews|anomalies|similarity)(\/|$)/.test(p)) return '/teacher/reviews';
+  if (/^\/teacher\/(analytics|ability|student)(\/|$)/.test(p)) return '/teacher/analytics';
+  if (/^\/student\/assignment\//.test(p) || /^\/problem\//.test(p)) return isTeacher() ? '/teacher/work' : '/problems';
+  return p;
+}
+
+function crumbTarget(p) {
+  if (/^\/problem\//.test(p)) return isTeacher() ? '/teacher/work?tab=problems' : '/problems';
+  if (/^\/teacher\/assignment\//.test(p)) return '/teacher/work';
+  if (/^\/teacher\/student\//.test(p)) return '/teacher/analytics';
+  if (/^\/student\/reviews\//.test(p)) return '/student/reviews';
+  if (/^\/student\/submissions\//.test(p)) return '/student/submissions';
+  return isTeacher() ? '/teacher/work' : '/problems';
+}
+
 function sidebar() {
   const role = isTeacher() ? 'teacher' : 'student';
   const groups = NAV[role];
@@ -66,7 +84,7 @@ function sidebar() {
   groups.forEach((g) => {
     nav.appendChild(h('div', { class: 'sidebar__group-title' }, g.group));
     g.items.forEach((it) => {
-      const active = currentPath().startsWith(it.path) && !(it.path === '/problems' && currentPath().startsWith('/teacher'));
+      const active = navOwner(currentPath()) === it.path;
       const badgeVal = it.badge ? state[it.badge] : 0;
       nav.appendChild(
         h(
@@ -87,13 +105,7 @@ function sidebar() {
       'div',
       { class: 'brand' },
       U.logo(34),
-      h('div', { class: 'brand__text' }, h('b', {}, '涅槃'), h('span', {}, '算法评审平台'))
-    ),
-    h(
-      'div',
-      { class: 'scene' },
-      h('span', { html: icon.spark }),
-      h('b', {}, isTeacher() ? '教学工作台' : '学习工作台')
+      h('div', { class: 'brand__text' }, h('b', {}, '算法设计与分析'), h('span', {}, '课程评审平台'))
     ),
     nav,
     h(
@@ -119,14 +131,15 @@ function topbar() {
     '/problems': ['题库与作业'],
     '/materials': ['课程资源'],
     '/problem': ['题库与作业', '题目详情'],
-    '/student/submissions': ['学习动态', '我的提交'],
-    '/student/reviews': ['学习动态', '互评中心'],
-    '/student/subjective': ['学习动态', '我的提交', '主观题'],
-    '/student/report': ['学习动态', '学习报告'],
-    '/student/class': ['学习动态', '我的班级'],
-    '/student/notices': ['学习动态', '全部通知'],
-    '/student/assignment': ['学习动态', '作业详情'],
-    '/teacher': ['教学看板'],
+    '/student/submissions': ['题库与作业', '我的提交'],
+    '/student/reviews': ['题库与作业', '互评中心'],
+    '/student/subjective': ['题库与作业', '我的提交', '主观题'],
+    '/student/report': ['题库与作业', '学习报告'],
+    '/student/class': ['题库与作业', '我的班级'],
+    '/student/notices': ['课程通知'],
+    '/student/assignment': ['题库与作业', '作业详情'],
+    '/teacher': ['作业与题库'],
+    '/teacher/notices': ['课程通知'],
     '/teacher/work': ['教学', '作业与题库'],
     '/teacher/students': ['教学', '班级与学生'],
     '/teacher/assignments': ['教学', '作业管理'],
@@ -142,9 +155,9 @@ function topbar() {
     '/teacher/experiments': ['算法实验', '算法实验台'],
   };
   const key = Object.keys(map).sort((a, b) => b.length - a.length).find((k) => p.startsWith(k));
-  const chain = map[key] || ['涅槃'];
+  const chain = map[key] || ['算法设计与分析课程评审平台'];
   // 面包屑可点击：非最后一级点回上一级
-  const parent = backTarget(p);
+  const parent = crumbTarget(p);
   chain.forEach((c, i, arr) => {
     if (i) crumbs.push(h('span', {}, '/'));
     if (i === arr.length - 1) crumbs.push(h('b', {}, c));
@@ -152,8 +165,7 @@ function topbar() {
       crumbs.push(h('button', { class: 'crumb-link', onclick: () => router.navigate(parent) }, c));
     else crumbs.push(h('span', {}, c));
   });
-  const openAnomalies = state.openAnomalies || 0;
-  return h(
+    return h(
     'header',
     { class: 'topbar' },
     h('button', { class: 'icon-btn nav-toggle', title: '菜单', onclick: () => document.querySelector('.shell').classList.toggle('nav-open') }, '☰'),
@@ -185,11 +197,7 @@ function topbar() {
         html: state.theme === 'dark' ? icon.sun : icon.moon,
       }
     ),
-    isTeacher() && openAnomalies
-      ? h('button', { class: 'icon-btn', title: '待处理异常', onclick: () => router.navigate('/teacher/anomalies') },
-          h('span', { html: icon.bell }),
-          h('span', { class: 'icon-btn__dot' }, openAnomalies > 9 ? '9+' : openAnomalies))
-      : null,
+    h('button', { class: 'icon-btn', title: '课程通知', onclick: () => router.navigate(isTeacher() ? '/teacher/notices' : '/student/notices'), html: icon.bell }),
     h(
       'div',
       { class: 'user-chip', onclick: openUserMenu },
@@ -301,11 +309,6 @@ function openUserMenu(e) {
     },
     h('div', { class: 'small muted', style: { padding: '6px 10px' } },
       (state.user.email || state.user.username || '') + ' · ' + (state.user.class_name || '教师')),
-    h('button', {
-      class: 'btn btn--ghost btn--block',
-      style: { marginTop: '6px' },
-      onclick: () => { close(); router.navigate(isTeacher() ? '/teacher' : '/student'); },
-    }, isTeacher() ? '教学看板' : '我的工作台'),
     // 「我的资料」是给教师 / 助教填公开资料的，学生端不需要
     isTeacher()
       ? h('button', {
@@ -343,13 +346,13 @@ const BACK_MAP = [
   [/^\/problem\//, null],           // 由浏览轨迹决定（题库 / 作业 / 学情分析都能进来）
   [/^\/student\/submissions\/.+/, '/student/submissions'],
   [/^\/student\/reviews\/.+/, '/student/reviews'],
-  [/^\/student\/assignment\/.+/, '/student'],
+  [/^\/student\/assignment\/.+/, '/problems'],
   [/^\/teacher\/assignment\/.+/, '/teacher/assignments'],
   [/^\/teacher\/student\/.+/, '/teacher/analytics'],
-  [/^\/materials$/, '/teacher'],
+  [/^\/materials$/, '/teacher/work'],
   [/^\/student\/subjective$/, '/student/submissions'],
-  [/^\/student\/(submissions|reviews|report|class|notices)$/, '/student'],
-  [/^\/teacher\/(work|students|assignments|submissions|classes|analytics|ability|reviews|anomalies|similarity|experiments)$/, '/teacher'],
+  [/^\/student\/(submissions|reviews|report|class|notices)$/, '/problems'],
+  [/^\/teacher\/(work|students|assignments|submissions|classes|analytics|ability|reviews|anomalies|similarity|experiments|notices)$/, '/teacher/work'],
 ];
 
 /**
@@ -363,8 +366,9 @@ export function backTarget(path) {
   }
   const prev = router.previousPath(null);
   // 登录页/首页不算「上一页」，否则每个顶级页面都会多出一个返回按钮
-  if (prev && prev !== path && prev !== '/login' && prev !== '/') return prev;
-  return fallback;
+  if (prev && prev.split('?')[0] !== path && !['/login', '/', '/student', '/teacher'].includes(prev.split('?')[0])) return prev;
+  if (path === '/materials') return isTeacher() ? '/teacher/work' : '/problems';
+  return fallback === path ? null : fallback;
 }
 
 const BACK_LABEL = {
@@ -490,7 +494,7 @@ function guard(ctx) {
   }
   // 已登录时访问登录/注册页，直接送去对应工作台（否则页面会停在加载态）
   if (state.token && isPublic && (ctx.path === '/login' || ctx.path === '/register')) {
-    router.navigate(isTeacher() ? '/teacher' : '/student');
+    router.navigate(isTeacher() ? '/teacher/work' : '/problems');
     return false;
   }
   // 角色隔离：教师进不了学生端页面，学生也进不了教师端页面
@@ -499,11 +503,11 @@ function guard(ctx) {
     const studentOnly = ctx.path === '/student' || ctx.path.startsWith('/student/');
     const teacherOnly = ctx.path.startsWith('/teacher');
     if (teacher && studentOnly) {
-      router.navigate('/teacher');
+      router.navigate('/teacher/work');
       return false;
     }
     if (!teacher && teacherOnly) {
-      router.navigate('/student');
+      router.navigate('/problems');
       return false;
     }
   }
@@ -530,7 +534,7 @@ function registerRoutes() {
     router.register(path, (ctx) => withPage(() => loader(ctx), (data, container) => render(data, container, ctx)));
 
   // 学生端
-  P('/student', S.loadDashboard, S.renderDashboard);
+  router.register('/student', () => router.navigate('/problems', { replace: true }));
   P('/materials', (ctx) => M.loadMaterials(ctx), (d, c, ctx) => M.renderMaterials(d, c, ctx));
   P('/student/submissions', S.loadSubmissions, S.renderSubmissions);
   P('/student/submissions/:id', S.loadSubmissionDetail, S.renderSubmissionDetail);
@@ -550,7 +554,8 @@ function registerRoutes() {
   );
 
   // 教师端
-  P('/teacher', T.loadTeacherDashboard, T.renderTeacherDashboard);
+  router.register('/teacher', () => router.navigate('/teacher/work', { replace: true }));
+  P('/teacher/notices', TC.loadNotices, TC.renderNotices);
   // 合并页（主导航）：作业与题库 / 班级与学生 / 学情分析 / 评审管理
   P('/teacher/work', TM.loadWork, TM.renderWork);
   P('/teacher/students', TM.loadStudentsPage, TM.renderStudentsPage);

@@ -621,9 +621,11 @@ class Seeder:
                         total = 95.0
                     else:
                         total = max(0.0, min(100.0, base + rng.gauss(0, noise[r])))
+                    scores = self._rubric(total, rng)
+                    total = round(sum(scores.values()), 1)
                     review_rows.append(
                         (al["id"], aid, prob["id"], None, r, a,
-                         db.jdumps(self._rubric(total, rng)), round(total, 2),
+                         db.jdumps(scores), total,
                          self._comment(total, rng),
                          round(max(8.0, rng.gauss(430, 130) * speed[r]), 1),
                          None, db.now(), 0, None)
@@ -649,6 +651,8 @@ class Seeder:
         再叠加评审者宽严偏差与噪声——这样「自动评测」与「人工评审」既相关又不重合，
         正好用来演示异常检测与可信度加权。
         """
+        from backend.api import default_code_rubric
+
         rng = self.rng
         aid = ids["assignments"]["a11"]
         studs = ids["students"]
@@ -696,9 +700,12 @@ class Seeder:
                 auto = float(sub["score"]) if sub else 40.0
                 style = 62 + 13 * abilities[a] + rng.gauss(0, 6)
                 total = max(0.0, min(100.0, 0.5 * auto + 0.5 * style + bias[r] + rng.gauss(0, noise[r])))
+                rubric = json.loads(prob["rubric"] or "[]") or default_code_rubric()
+                scores = self._rubric(total, rng, rubric)
+                total = round(sum(scores.values()), 1)
                 review_rows.append(
                     (al["id"], aid, prob["id"], sub["id"] if sub else None, r, a,
-                     db.jdumps(self._rubric(total, rng)), round(total, 2),
+                     db.jdumps(scores), total,
                      self._comment(total, rng),
                      round(max(30.0, rng.gauss(380, 110))), None, db.now(), 0, None)
                 )
@@ -809,13 +816,16 @@ class Seeder:
             )
         return text
 
-    def _rubric(self, total: float, rng: random.Random) -> dict:
-        keys = [(r["key"], r["max"]) for r in PB.RUBRIC_STANDARD]
-        raw = []
-        for _k, mx in keys:
-            raw.append(max(0.0, min(float(mx), total / 100.0 * mx + rng.gauss(0, mx * 0.11))))
-        s = sum(raw) or 1.0
-        return {k: round(v * (total / s) if s else 0.0, 1) for (k, _m), v in zip(keys, raw)}
+    def _rubric(self, total: float, rng: random.Random, rubric=None) -> dict:
+        keys = [(r["key"], int(round(r["max"] * 10))) for r in (rubric or PB.RUBRIC_STANDARD)]
+        target = max(0, min(sum(mx for _, mx in keys), int(round(total * 10))))
+        values = [0] * len(keys)
+        # Randomly fill bounded dimensions in tenths; sum always equals the displayed total.
+        for _ in range(target):
+            available = [i for i, (_, mx) in enumerate(keys) if values[i] < mx]
+            weights = [keys[i][1] - values[i] for i in available]
+            values[rng.choices(available, weights=weights)[0]] += 1
+        return {key: value / 10 for (key, _), value in zip(keys, values)}
 
     def _comment(self, total: float, rng: random.Random) -> str:
         hi = [

@@ -238,7 +238,7 @@ function read(path, q) {
     case 'experiments':
       return (DS.experiments_cache && Object.values(DS.experiments_cache)) || [];
     case 'notices':
-      return DS.notices;
+      return DS.notices.slice(Math.max(0, Number(q.offset) || 0), Math.max(0, Number(q.offset) || 0) + Math.min(100, Number(q.limit) || 30));
     case 'dashboard':
       return tail[1] === 'teacher' ? teacherDashboard() : studentDashboard();
     default:
@@ -591,6 +591,7 @@ function reviewTask(allocationId) {
     problem_type: p.type,
     author: '匿名#' + (1000 + (a.author_id * 7919) % 8999),
     rubric: staffRubric(p),
+    my_review: DS.reviews.find((r) => r.allocation_id === a.id) || null,
     status: a.status, review_due_at: m.review_due_at,
   };
   // 编程题：把作者最好的一次提交当作评审对象（与后端一致）
@@ -718,7 +719,7 @@ function anomalies(q) {
   const w = { high: 22, medium: 11, low: 4 };
   const stats = {};
   list.forEach((a) => {
-    if (!a.reviewer_id) return;
+    if (!a.reviewer_id || a.status !== 'open') return;
     const s = (stats[a.reviewer_id] = stats[a.reviewer_id] || {
       reviewer_id: a.reviewer_id, reviewer_name: a.reviewer_name, class_name: a.class_name,
       count: 0, levels: {}, types: [], risk: 0,
@@ -735,9 +736,9 @@ function anomalies(q) {
     anomalies: list,
     reviewer_risk: Object.values(stats).sort((a, b) => b.risk - a.risk),
     counts: {
-      high: list.filter((a) => a.level === 'high').length,
-      medium: list.filter((a) => a.level === 'medium').length,
-      low: list.filter((a) => a.level === 'low').length,
+      high: list.filter((a) => a.level === 'high' && a.status === 'open').length,
+      medium: list.filter((a) => a.level === 'medium' && a.status === 'open').length,
+      low: list.filter((a) => a.level === 'low' && a.status === 'open').length,
       open: list.filter((a) => a.status === 'open').length,
     },
   };

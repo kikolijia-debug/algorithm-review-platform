@@ -16,7 +16,7 @@ let logoSeq = 0;
 
 /** 生成标识的 SVG 源码；prefix 用于隔离渐变 id */
 export function logoSvg(prefix = 'nv') {
-  return `<svg viewBox="0 0 48 48" width="100%" height="100%" role="img" aria-label="涅槃 Nirvana">
+  return `<svg viewBox="0 0 48 48" width="100%" height="100%" role="img" aria-label="算法设计与分析课程评审平台">
   <defs>
     <linearGradient id="${prefix}-badge" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#0b3a2d"/><stop offset=".55" stop-color="#12684c"/><stop offset="1" stop-color="#1eb27c"/>
