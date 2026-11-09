@@ -754,7 +754,7 @@ def api_experiments(ctx):
     return ok(rows)
 
 
-@route("POST", "/api/experiments/run")
+@route("POST", "/api/experiments/run", "teacher")
 def api_experiment_run(ctx):
     b = ctx["body"] or {}
     cid = active_course_id(ctx)
@@ -771,9 +771,19 @@ def api_experiment_run(ctx):
         if v is None or v == "":
             continue
         try:
-            kwargs[spec["key"]] = float(v) if spec["type"] == "float" else int(float(v))
-        except (TypeError, ValueError):
-            continue
+            import math
+            parsed = float(v)
+            if not math.isfinite(parsed) or not spec["min"] <= parsed <= spec["max"]:
+                raise ValueError
+            if spec["type"] != "float" and not parsed.is_integer():
+                raise ValueError
+            kwargs[spec["key"]] = parsed if spec["type"] == "float" else int(parsed)
+        except (TypeError, ValueError, OverflowError):
+            return err(400, "实验参数超出允许范围：" + spec["label"])
+    if kwargs.get("k", 0) > kwargs.get("n_reviewers", 60):
+        return err(400, "每份评审数不能超过评审者人数")
+    if kwargs.get("n_bad", 0) > kwargs.get("n_reviewers", 60):
+        return err(400, "注入异常人数不能超过评审者人数")
     t0 = time.perf_counter()
     try:
         result = fn(**kwargs)

@@ -350,6 +350,37 @@ def test_judge():
     check("静态检查能发现可疑调用", "system(" in J.static_check("int main(){system(\"ls\");}", "cpp"))
 
 
+def test_review_suggestions():
+    from collections import Counter
+    from unittest.mock import patch
+    section("评审建议回归")
+    valid = True
+    for seed in range(300):
+        rng = random.Random(seed)
+        n = rng.randint(6, 18)
+        people = list(range(n))
+        klass = {i: str(i % 3) for i in people}
+        k = rng.randint(2, min(5, n - 1))
+        params = AS.AllocationParams(reviews_per_submission=k, max_load=k+1, seed=seed, local_search_rounds=40)
+        result = AS.allocate_mcmf(people, people, klass, params)
+        pairs = result.allocations
+        valid &= (len(pairs) == len(set(pairs)) == n*k and all(a != r for a,r in pairs)
+                  and set(Counter(a for a,r in pairs).values()) == {k}
+                  and max(Counter(r for a,r in pairs).values()) <= k+1)
+    check("300 个随机分配实例无重复、自评，覆盖与工作量约束成立", valid)
+    ok = {"ok": True, "returncode": 0, "time_ms": 10}
+    responses = [ok] + [ok]*5 + [ok, {"timeout": True}]
+    with patch.object(J, "run_process", side_effect=responses) as run, patch.object(J, "startup_overhead_ms", return_value=0), patch.object(J, "fit_complexity", return_value={"ok": True}) as fit:
+        result = J.measure_complexity("print(1)", "python", [(1,"1"),(2,"2"),(3,"3")], time_limit_ms=1000)
+        check("复杂度超时记录为1000毫秒，截断后续规模", result["measurements"][-1] == {"n":2,"time_ms":1000.0,"timeout":True} and run.call_count == 8)
+        check("超时下界不参与复杂度拟合", fit.call_args.args[0] == [{"n":1,"time_ms":10}])
+    check("C++ 字符串中 // 与块注释符号不截断代码", SIM.normalize_source('auto url="http://a/*x*/"; return 7;') == SIM.normalize_source('auto url="plain"; return 7;'))
+    check("注释中的引号不会吞掉后续代码", SIM.normalize_source('// "unfinished\nint answer=7;') == SIM.normalize_source('int answer=7;'))
+    check("Python 字符串中 # 保留后续代码", SIM.normalize_source('url="a#b"; print(1)', 'python') == SIM.normalize_source('url="plain"; print(1)', 'python'))
+    reviews = [{"submission_id":i,"author_id":i,"reviewer_id":1,"score":70+i,"duration_sec":d} for i,d in enumerate([None,0,120,240])]
+    check("异常时长均值只除以有效时长条数", AN.detect(reviews)["reviewer_stats"][1]["mean_duration"] == 180)
+
+
 # ---------------------------------------------------------------- main
 
 
@@ -420,11 +451,11 @@ def test_genbank():
 
 def main() -> int:
     print("=" * 64)
-    print("涅槃 Nirvana · 核心算法单元测试")
+    print("算法设计与分析课程评审平台 · 核心算法单元测试")
     print("=" * 64)
     for fn in (
         test_flow, test_assignment, test_aggregation, test_anomaly,
-        test_ability, test_similarity, test_complexity, test_judge, test_genbank,
+        test_ability, test_similarity, test_complexity, test_judge, test_genbank, test_review_suggestions,
     ):
         fn()
     print("\n" + "=" * 64)

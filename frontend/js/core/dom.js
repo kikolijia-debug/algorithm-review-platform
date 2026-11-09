@@ -47,7 +47,7 @@ export function apply(el, props) {
       value(el);
     } else if (key === 'value' && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT')) {
       el.value = value;
-    } else if (key === 'checked' || key === 'disabled' || key === 'selected' || key === 'multiple') {
+    } else if (key === 'checked' || key === 'disabled' || key === 'selected' || key === 'multiple' || key === 'readOnly') {
       el[key] = Boolean(value);
     } else {
       el.setAttribute(key, String(value));

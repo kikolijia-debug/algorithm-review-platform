@@ -275,7 +275,7 @@ function subjectivePane(problem) {
   const draftKey = `ajp.subjective.${state.user.id}.${problem.assignment_id || 'unselected'}.${problem.id}`;
   let saved = null;
   try { saved = JSON.parse(localStorage.getItem(draftKey) || 'null'); } catch { /* 忽略损坏的草稿 */ }
-  const inputs = { ...((existing && existing.content) || {}), ...(saved || {}) };
+  const inputs = { ...((existing && existing.content) || {}), ...(problem.review_locked ? {} : saved || {}) };
   const persist = () => { try { localStorage.setItem(draftKey, JSON.stringify(inputs)); } catch { /* 本地存储不可用 */ } };
   const editorBox = h('div', { class: 'col', style: { gap: '12px' } });
   const fields = sections.length
@@ -288,16 +288,17 @@ function subjectivePane(problem) {
       U.field(sec.name, U.textarea({
         placeholder: sec.hint || '请分点作答…',
         value: inputs[sec.key] || '',
+        readOnly: !!problem.review_locked,
         style: { minHeight: '150px' },
         oninput: (e) => { inputs[sec.key] = e.target.value; persist(); },
       }), { hint: sec.hint })
     )
   );
 
-  const submit = U.btn(existing ? '更新提交' : '提交作业', {
+  const submit = U.btn(problem.review_locked ? '已进入互评' : existing ? '更新提交' : '提交作业', {
     tone: 'primary',
     icon: U.icon.send,
-    disabled: !problem.assignment_id,
+    disabled: !problem.assignment_id || problem.review_locked,
     onClick: async () => {
       const content = {};
       fields.forEach((f) => (content[f.key] = inputs[f.key] || ''));
@@ -338,7 +339,7 @@ function subjectivePane(problem) {
     { class: 'col', style: { gap: '14px' } },
     U.card(
       U.cardHead(existing ? '修改作答' : '在线作答', {
-        sub: problem.assignment_id ? '草稿保存在此浏览器，提交后教师可查看。' : '请先选择所属作业。',
+        sub: problem.review_locked ? '已进入互评，当前展示评审时的作答版本。如需修改，请联系教师。' : problem.assignment_id ? '草稿保存在此浏览器，提交后教师可查看。' : '请先选择所属作业。',
         actions: existing ? U.badge('已提交 · ' + (existing.status === 'done' ? '评审已完成' : '评审中'), existing.status === 'done' ? 'ok' : 'warn') : null,
       }),
       editorBox,

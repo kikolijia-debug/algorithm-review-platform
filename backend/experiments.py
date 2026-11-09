@@ -271,7 +271,7 @@ def experiment_anomaly(
             f"检出 {tp} 个，误报 {fp} 个，精确率 {precision:.3f}、召回率 {recall:.3f}、"
             f"F1 {f1:.3f}。误报主要来自「只评了 3 份」的小样本评审者，"
             f"因此系统把证据不足的对象标记为「中风险 · 待复核」，"
-            f"只有证据充分的才升级为「高风险」并自动降低权重。"
+            f"高风险记录优先供教师复核，调整权重由教师明确操作。"
         ),
     }
 
@@ -286,8 +286,8 @@ _GEN = """unsigned int seed=12345u;for(int i=0;i<n;i++){seed=seed*1103515245u+12
 
 BUBBLE_CPP = (
     "#include <bits/stdc++.h>\n"
-    "int a[300005];\n"
-    "int main(){int n;if(scanf(\"%d\",&n)!=1)return 0;\n"
+    "std::vector<int> a;\n"
+    "int main(){int n;if(scanf(\"%d\",&n)!=1||n<1||n>2000000)return 1;a.resize(n);\n"
     + _GEN
     + "\nlong long c=0;for(int i=0;i<n;i++)for(int j=i+1;j<n;j++)if(a[i]>a[j])c++;\n"
     "printf(\"%lld\\n\",c);return 0;}\n"
@@ -295,12 +295,12 @@ BUBBLE_CPP = (
 
 MERGE_CPP = (
     "#include <bits/stdc++.h>\n"
-    "int n,a[300005],buf[300005];long long c=0;\n"
+    "int n;std::vector<int> a,buf;long long c=0;\n"
     "void ms(int lo,int hi){if(hi-lo<=1)return;int mid=(lo+hi)/2;ms(lo,mid);ms(mid,hi);\n"
     "int i=lo,j=mid,k=lo;while(i<mid&&j<hi){if(a[i]<=a[j])buf[k++]=a[i++];"
     "else{buf[k++]=a[j++];c+=mid-i;}}\n"
     "while(i<mid)buf[k++]=a[i++];while(j<hi)buf[k++]=a[j++];for(int t=lo;t<hi;t++)a[t]=buf[t];}\n"
-    "int main(){if(scanf(\"%d\",&n)!=1)return 0;\n"
+    "int main(){if(scanf(\"%d\",&n)!=1||n<1||n>2000000)return 1;a.resize(n);buf.resize(n);\n"
     + _GEN
     + "\nms(0,n);printf(\"%lld\\n\",c);return 0;}\n"
 )
@@ -340,7 +340,7 @@ def experiment_complexity(sizes: list[int] | None = None) -> dict:
             "同时给出相邻规模耗时比，可直观校核 O(n^p) 中的 p。"
         )
     else:
-        out["conclusion"] = "本机缺少 C++ 编译器，无法完成实测复杂度实验。"
+        out["conclusion"] = "未取得有效拟合，请查看各程序的编译、运行或采样错误。"
     return out
 
 

@@ -141,6 +141,48 @@ class Workflows(unittest.TestCase):
             self.assertAlmostEqual(sum(scores.values()), round(total, 1))
             self.assertTrue(all(0 <= scores[r["key"]] <= r["max"] for r in rubric))
 
+    def test_experiment_execution_is_staff_only(self):
+        with patch.object(__import__("backend.api_ext", fromlist=["EX"]).EX, "EXPERIMENTS", {"test": lambda: {"ok": True}}):
+            self.call("/api/experiments/run", {"key": "test"}, self.st, want=403)
+            self.call("/api/experiments/run", {"key": "test"}, self.t)
+        for n in (1000000, "NaN", -1, 3.5):
+            self.call("/api/experiments/run", {"key": "allocation", "params": {"n_students": n}}, self.t, want=400)
+
+    def test_subjective_review_version_is_frozen(self):
+        sid = self.subjective()
+        db.ex("UPDATE subjective_submissions SET final_score=75 WHERE id=?", (sid,))
+        self.task(score=75, reviewer=self.rid, author=self.uid)
+        db.ex("UPDATE assignments SET status='published' WHERE id=?", (self.aid,))
+        self.call("/api/subjective", {"assignment_id": self.aid, "problem_id": self.subj,
+                  "content": {"answer": "A different answer"}}, self.st, want=409)
+        self.assertEqual(db.q1("SELECT final_score FROM subjective_submissions WHERE id=?", (sid,))[0], 75)
+        self.subjective()
+        self.assertEqual(db.q1("SELECT final_score FROM subjective_submissions WHERE id=?", (sid,))[0], 75)
+
+    def test_large_request_rejected_before_reading(self):
+        import http.client
+        conn = http.client.HTTPConnection("127.0.0.1", self.httpd.server_port, timeout=5)
+        conn.putrequest("POST", "/api/auth/login")
+        conn.putheader("Content-Length", str(3*1024*1024))
+        conn.endheaders()
+        response = conn.getresponse()
+        self.assertEqual(response.status, 413)
+        response.read()
+        conn.close()
+
+    def test_delete_keeps_referenced_problem_and_submission(self):
+        self.call(f"/api/problems/{self.pid}", {}, self.t, "DELETE", want=409)
+        sid = db.ex("INSERT INTO submissions(problem_id,user_id,assignment_id,language,source_code,submitted_at) VALUES(?,?,?,?,?,?)",
+                    (self.pid, self.uid, self.aid, "python", "print(3)", db.now()))
+        other_aid = self.assignment([self.pid])
+        db.ex("INSERT INTO allocations(assignment_id,problem_id,author_id,reviewer_id,submission_id,created_at) VALUES(?,?,?,?,?,?)",
+              (other_aid, self.pid, self.uid, self.rid, sid, db.now()))
+        self.call(f"/api/assignments/{self.aid}", {}, self.t, "DELETE", want=409)
+        self.assertIsNotNone(db.q1("SELECT id FROM submissions WHERE id=?", (sid,)))
+        self.call(f"/api/assignments/{other_aid}", {}, self.t, "DELETE")
+        self.call(f"/api/assignments/{self.aid}", {}, self.t, "DELETE")
+        self.assertIsNone(db.q1("SELECT id FROM submissions WHERE id=?", (sid,)))
+
     def test_no_course_is_empty(self):
         for path in ("/api/problems", "/api/assignments", "/api/notices", "/api/subjective"):
             self.assertEqual(self.call(path, token=self.unjoined), [])

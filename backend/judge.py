@@ -667,7 +667,7 @@ def measure_complexity(
 
     计时细节：先做一次预热运行（排除首次启动的磁盘扫描开销），再从每个规模的
     实测墙钟时间中扣除「空程序基线」（``startup_overhead_ms``），
-    并取 3 次运行的中位数，最后按 n 升序依次测量。
+    并取 5 次运行的中位数，最后按 n 升序依次测量。超时点仅记录下界，不参与拟合。
     """
     lang = (language or "cpp").lower()
     if lang not in LANGUAGES or not LANGUAGES[lang]["available"]():
@@ -684,6 +684,8 @@ def measure_complexity(
                 return {"ok": False, "reason": "编译失败", "message": (cr.get("stderr") or "")[:2000]}
         base_ms = startup_overhead_ms(lang)
         # 预热：先跑一次最大规模的输入，让 CPU 频率与文件缓存进入稳态
+        if not cases_by_size:
+            return {"ok": False, "reason": "缺少输入规模"}
         biggest = max(cases_by_size, key=lambda x: x[0])
         run_process(cfg["run"](exe), workdir, stdin_data=biggest[1],
                     timeout_s=min(30.0, time_limit_ms / 1000.0))
@@ -691,19 +693,26 @@ def measure_complexity(
         for n, inp in sorted(cases_by_size, key=lambda x: x[0]):
             # 每个规模测 5 次取中位数，降低调度抖动
             ts = []
+            timed_out = False
             for _ in range(5):
                 r = run_process(
                     cfg["run"](exe), workdir, stdin_data=inp, timeout_s=time_limit_ms / 1000.0
                 )
                 if r.get("timeout"):
-                    ts.append(time_limit_ms / 1000.0)
+                    timed_out = True
                     break
+                if not r.get("ok") or r.get("returncode") != 0:
+                    return {"ok": False, "reason": "运行失败", "measurements": points,
+                            "message": (r.get("stderr") or r.get("error") or "程序异常退出")[:2000]}
                 ts.append(max(0.05, (r.get("time_ms") or 0.0) - base_ms))
+            if timed_out:
+                points.append({"n": n, "time_ms": float(time_limit_ms), "timeout": True})
+                break
             ts.sort()
             points.append({"n": n, "time_ms": round(ts[len(ts) // 2], 4)})
             if points[-1]["time_ms"] >= time_limit_ms:
                 break
-        fit = fit_complexity(points)
+        fit = fit_complexity([p for p in points if not p.get("timeout")])
         fit["measurements"] = points
         fit["startup_overhead_ms"] = round(base_ms, 3)
         return fit

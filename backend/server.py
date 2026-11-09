@@ -45,7 +45,7 @@ def compile_routes() -> None:
     for method, path, fn, auth in API.ROUTES:
         pattern = re.sub(r"\{(\w+)\}", r"(?P<\1>[^/]+)", path)
         items.append((method, re.compile("^" + pattern + "$"), fn, auth))
-    items.sort(key=lambda x: ("{" in x[0] and 0 or 0, x[1].pattern.count("(?P<")))
+    items.sort(key=lambda x: x[1].pattern.count("(?P<"))
     _COMPILED.extend(items)
 
 
@@ -136,6 +136,19 @@ class Handler(BaseHTTPRequestHandler):
     def _dispatch(self, method: str) -> None:
         parsed = urllib.parse.urlparse(self.path)
         path = urllib.parse.unquote(parsed.path)
+        if method in ("POST", "PUT", "PATCH", "DELETE"):
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+                if length < 0:
+                    raise ValueError
+            except ValueError:
+                self.close_connection = True
+                return self._json(400, {"ok": False, "error": "请求长度不合法"})
+            # 60 MB 课件经 base64 后约 80 MB；普通 JSON 接口最多 2 MB。
+            limit = (84 if re.fullmatch(r"/api/materials(?:/\d+(?:/file)?)?", path) else 2) * 1024 * 1024
+            if length > limit:
+                self.close_connection = True
+                return self._json(413, {"ok": False, "error": "请求内容超过大小限制"})
         if path.startswith("/api/"):
             self._api(method, path, parsed)
         elif method in ("GET", "HEAD"):

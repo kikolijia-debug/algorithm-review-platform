@@ -215,6 +215,8 @@ const picker = find(proofNode, (n) => n.tagName === 'SELECT')[0];
 picker.value = '7';
 picker.listeners.change[0]({ target: picker });
 check('作业选择器使用实际选中的作业 ID', ctx.location.hash === '#/problem/9?assignment_id=7');
+const locked = problemPage.renderProblem({ problem: { ...proof, review_locked: true }, meta: {} });
+check('互评开始后作答只读并禁止更新', find(locked, (n) => n.tagName === 'TEXTAREA')[0].readOnly && find(locked, (n) => n.tagName === 'BUTTON' && textOf(n).includes('已进入互评'))[0].disabled);
 const noAssignment = problemPage.renderProblem({ problem: { ...proof, assignment_id: null }, meta: {} });
 check('未选择所属作业时禁止主观题提交', find(noAssignment, (n) => n.tagName === 'BUTTON' && textOf(n).includes('更新提交'))[0].disabled);
 appStore.state.user = { id: 999, role: 'student' };

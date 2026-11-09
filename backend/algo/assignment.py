@@ -340,6 +340,8 @@ def local_search(
             return False  # 同一评审者重复出现 / 会引入自评
 
         ay, bx = (a, y), (b, x)
+        if ay in pairs or bx in pairs:
+            return False  # 不得让同一作者被同一评审者重复评价
         delta = 0.0
         if has_prev:
             delta += alpha * (

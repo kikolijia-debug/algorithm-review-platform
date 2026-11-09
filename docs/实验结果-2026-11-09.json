@@ -1,0 +1,1233 @@
+{
+  "generated_at": "2026-11-09 15:50:45",
+  "environment": "Windows-11-10.0.26200-SP0 / Python 3.14.3",
+  "source": "当前算法默认参数实测；由 tools/export_demo.py 生成",
+  "experiments": {
+    "allocation": {
+      "experiment": "allocation",
+      "title": "评审任务分配算法对比",
+      "params": {
+        "n_students": 60,
+        "k": 3,
+        "max_load": 4,
+        "rounds": 5,
+        "groups": 2
+      },
+      "metrics": [
+        "coverage",
+        "load_max",
+        "load_min",
+        "load_std",
+        "gini_load",
+        "self_review",
+        "reciprocal_pairs",
+        "cross_class_ratio",
+        "elapsed_ms"
+      ],
+      "rows": [
+        {
+          "method": "random",
+          "label": "随机分配",
+          "coverage": 1.0,
+          "load_max": 4.0,
+          "load_min": 0.0,
+          "load_std": 1.1698,
+          "gini_load": 0.2036,
+          "self_review": 0.0,
+          "reciprocal_pairs": 3.4,
+          "cross_class_ratio": 0.4911,
+          "elapsed_ms": 0.45,
+          "elapsed_total_ms": 2.25
+        },
+        {
+          "method": "greedy",
+          "label": "贪心负载均衡",
+          "coverage": 1.0,
+          "load_max": 3.0,
+          "load_min": 3.0,
+          "load_std": 0.0,
+          "gini_load": 0.0,
+          "self_review": 0.0,
+          "reciprocal_pairs": 11.2,
+          "cross_class_ratio": 1.0,
+          "elapsed_ms": 2.8,
+          "elapsed_total_ms": 14.0
+        },
+        {
+          "method": "mcmf",
+          "label": "最小费用流",
+          "coverage": 1.0,
+          "load_max": 3.0,
+          "load_min": 3.0,
+          "load_std": 0.0,
+          "gini_load": 0.0,
+          "self_review": 0.0,
+          "reciprocal_pairs": 10.4,
+          "cross_class_ratio": 1.0,
+          "elapsed_ms": 121.208,
+          "elapsed_total_ms": 606.03
+        },
+        {
+          "method": "mcmf+ls",
+          "label": "最小费用流 + 局部搜索",
+          "coverage": 1.0,
+          "load_max": 3.0,
+          "load_min": 3.0,
+          "load_std": 0.0,
+          "gini_load": 0.0,
+          "self_review": 0.0,
+          "reciprocal_pairs": 0.0,
+          "cross_class_ratio": 0.6623,
+          "elapsed_ms": 434.608,
+          "elapsed_total_ms": 2173.04
+        }
+      ],
+      "detail": {
+        "random": {
+          "stats": {},
+          "sample": [
+            [
+              1,
+              41
+            ],
+            [
+              1,
+              42
+            ],
+            [
+              1,
+              18
+            ],
+            [
+              2,
+              48
+            ],
+            [
+              2,
+              38
+            ],
+            [
+              2,
+              49
+            ],
+            [
+              3,
+              43
+            ],
+            [
+              3,
+              59
+            ],
+            [
+              3,
+              40
+            ],
+            [
+              4,
+              43
+            ],
+            [
+              4,
+              50
+            ],
+            [
+              4,
+              44
+            ]
+          ]
+        },
+        "greedy": {
+          "stats": {},
+          "sample": [
+            [
+              1,
+              32
+            ],
+            [
+              1,
+              36
+            ],
+            [
+              1,
+              28
+            ],
+            [
+              2,
+              17
+            ],
+            [
+              2,
+              13
+            ],
+            [
+              2,
+              25
+            ],
+            [
+              3,
+              56
+            ],
+            [
+              3,
+              60
+            ],
+            [
+              3,
+              52
+            ],
+            [
+              4,
+              57
+            ],
+            [
+              4,
+              29
+            ],
+            [
+              4,
+              53
+            ]
+          ]
+        },
+        "mcmf": {
+          "stats": {
+            "flow": 180,
+            "target_flow": 180,
+            "cost": 198.0001,
+            "spfa_rounds": 180,
+            "nodes": 123,
+            "edges": 3840
+          },
+          "sample": [
+            [
+              1,
+              4
+            ],
+            [
+              1,
+              32
+            ],
+            [
+              1,
+              36
+            ],
+            [
+              2,
+              13
+            ],
+            [
+              2,
+              17
+            ],
+            [
+              2,
+              25
+            ],
+            [
+              3,
+              40
+            ],
+            [
+              3,
+              44
+            ],
+            [
+              3,
+              48
+            ],
+            [
+              4,
+              29
+            ],
+            [
+              4,
+              37
+            ],
+            [
+              4,
+              57
+            ]
+          ]
+        },
+        "mcmf+ls": {
+          "stats": {
+            "flow": 180,
+            "target_flow": 180,
+            "cost": 198.0001,
+            "spfa_rounds": 180,
+            "nodes": 123,
+            "edges": 3840,
+            "local_search_rounds": 57,
+            "objective_before_ls": 55.0,
+            "objective_after_ls": 12.0
+          },
+          "sample": [
+            [
+              1,
+              19
+            ],
+            [
+              1,
+              37
+            ],
+            [
+              1,
+              31
+            ],
+            [
+              2,
+              14
+            ],
+            [
+              2,
+              4
+            ],
+            [
+              2,
+              26
+            ],
+            [
+              3,
+              39
+            ],
+            [
+              3,
+              45
+            ],
+            [
+              3,
+              49
+            ],
+            [
+              4,
+              58
+            ],
+            [
+              4,
+              32
+            ],
+            [
+              4,
+              36
+            ]
+          ]
+        }
+      },
+      "conclusion": "最小费用流 + 局部搜索 在负载均衡（基尼系数 0.0000）与互为评审（0.0 对）两项上综合最优。随机分配的负载极差为 4.0，基尼系数 0.2036，明显高于最优方案；而耗时仅 434.6 ms，在课堂规模下完全可接受。",
+      "elapsed_ms": 2796.94
+    },
+    "aggregation": {
+      "experiment": "aggregation",
+      "title": "评分聚合方法对比",
+      "params": {
+        "n_submissions": 60,
+        "n_reviewers": 60,
+        "k": 5,
+        "bias_sd": 8.0,
+        "noise_sd": 5.0,
+        "malicious": 2,
+        "rounds": 3
+      },
+      "metrics": [
+        "rmse",
+        "stability_mad",
+        "rank_corr_vs_mean",
+        "mean"
+      ],
+      "rows": [
+        {
+          "method": "reliability_em",
+          "label": "可信度动态加权(EM)",
+          "rmse": 2.9616,
+          "stability_mad": 0.0466,
+          "stability_max": 2.9601,
+          "rank_corr_vs_mean": 0.8897,
+          "mean": 59.7393
+        },
+        {
+          "method": "trimmed_mean",
+          "label": "截尾平均",
+          "rmse": 4.5481,
+          "stability_mad": 0.0306,
+          "stability_max": 4.6287,
+          "rank_corr_vs_mean": 0.9459,
+          "mean": 60.13
+        },
+        {
+          "method": "robust_huber",
+          "label": "Huber 稳健估计",
+          "rmse": 4.5728,
+          "stability_mad": 0.0314,
+          "stability_max": 5.5462,
+          "rank_corr_vs_mean": 0.9497,
+          "mean": 60.1193
+        },
+        {
+          "method": "median",
+          "label": "中位数",
+          "rmse": 5.0451,
+          "stability_mad": 0.0365,
+          "stability_max": 7.2388,
+          "rank_corr_vs_mean": 0.9251,
+          "mean": 60.405
+        },
+        {
+          "method": "mean",
+          "label": "算术平均",
+          "rmse": 6.4161,
+          "stability_mad": 0.035,
+          "stability_max": 8.3657,
+          "rank_corr_vs_mean": 1.0,
+          "mean": 59.4567
+        },
+        {
+          "method": "weighted_mean",
+          "label": "可信度静态加权",
+          "rmse": 6.4161,
+          "stability_mad": 0.035,
+          "stability_max": 8.3657,
+          "rank_corr_vs_mean": 1.0,
+          "mean": 59.4567
+        }
+      ],
+      "conclusion": "可信度动态加权(EM) 的 RMSE 为 2.962，比算术平均（6.416）降低 53.8%，说明在存在宽严偏差与恶意评分的真实数据上，动态可信度加权能显著提升估计精度；代价是留一稳定性（0.0466）略高于算术平均（0.0350），需要在「精度」与「可解释的稳定性」之间权衡。",
+      "elapsed_ms": 1388.87
+    },
+    "anomaly": {
+      "experiment": "anomaly",
+      "title": "异常评审检测效果",
+      "params": {
+        "n_submissions": 60,
+        "n_reviewers": 60,
+        "k": 5,
+        "n_bad": 4,
+        "rounds": 5
+      },
+      "metrics": [
+        "precision",
+        "recall",
+        "f1"
+      ],
+      "rows": [
+        {
+          "method": "risk",
+          "label": "综合风险分 ≥ 45（高风险复核）",
+          "precision": 0.7826,
+          "recall": 0.9,
+          "f1": 0.8372,
+          "tp": 18,
+          "fp": 5,
+          "fn": 2
+        }
+      ],
+      "per_round": [
+        {
+          "round": 1,
+          "injected": 4,
+          "flagged": 4,
+          "suspicious": 8,
+          "tp": 3,
+          "fp": 1,
+          "fn": 1
+        },
+        {
+          "round": 2,
+          "injected": 4,
+          "flagged": 4,
+          "suspicious": 8,
+          "tp": 4,
+          "fp": 0,
+          "fn": 0
+        },
+        {
+          "round": 3,
+          "injected": 4,
+          "flagged": 4,
+          "suspicious": 9,
+          "tp": 3,
+          "fp": 1,
+          "fn": 1
+        },
+        {
+          "round": 4,
+          "injected": 4,
+          "flagged": 7,
+          "suspicious": 5,
+          "tp": 4,
+          "fp": 3,
+          "fn": 0
+        },
+        {
+          "round": 5,
+          "injected": 4,
+          "flagged": 4,
+          "suspicious": 10,
+          "tp": 4,
+          "fp": 0,
+          "fn": 0
+        }
+      ],
+      "conclusion": "在 5 轮模拟中累计注入 20 个异常评审者，检出 18 个，误报 5 个，精确率 0.783、召回率 0.900、F1 0.837。误报主要来自「只评了 3 份」的小样本评审者，因此系统把证据不足的对象标记为「中风险 · 待复核」，高风险记录优先供教师复核，调整权重由教师明确操作。",
+      "elapsed_ms": 89.85
+    },
+    "similarity": {
+      "experiment": "similarity",
+      "title": "代码相似度检测（Winnowing 指纹）",
+      "params": {
+        "n_submissions": 60,
+        "threshold": 0.5,
+        "k": 5,
+        "w": 4
+      },
+      "metrics": [
+        "similarity",
+        "elapsed_ms"
+      ],
+      "rows": [
+        {
+          "a": 1,
+          "b": 2,
+          "similarity": 1.0,
+          "level_a": 0,
+          "level_b": 1,
+          "kind": "改名/加注释"
+        },
+        {
+          "a": 1,
+          "b": 5,
+          "similarity": 1.0,
+          "level_a": 0,
+          "level_b": 0,
+          "kind": "完全相同"
+        },
+        {
+          "a": 1,
+          "b": 6,
+          "similarity": 1.0,
+          "level_a": 0,
+          "level_b": 1,
+          "kind": "改名/加注释"
+        },
+        {
+          "a": 1,
+          "b": 9,
+          "similarity": 1.0,
+          "level_a": 0,
+          "level_b": 0,
+          "kind": "完全相同"
+        },
+        {
+          "a": 1,
+          "b": 10,
+          "similarity": 1.0,
+          "level_a": 0,
+          "level_b": 1,
+          "kind": "改名/加注释"
+        },
+        {
+          "a": 1,
+          "b": 13,
+          "similarity": 1.0,
+          "level_a": 0,
+          "level_b": 0,
+          "kind": "完全相同"
+        },
+        {
+          "a": 1,
+          "b": 14,
+          "similarity": 1.0,
+          "level_a": 0,
+          "level_b": 1,
+          "kind": "改名/加注释"
+        },
+        {
+          "a": 1,
+          "b": 17,
+          "similarity": 1.0,
+          "level_a": 0,
+          "level_b": 0,
+          "kind": "完全相同"
+        },
+        {
+          "a": 1,
+          "b": 18,
+          "similarity": 1.0,
+          "level_a": 0,
+          "level_b": 1,
+          "kind": "改名/加注释"
+        },
+        {
+          "a": 1,
+          "b": 21,
+          "similarity": 1.0,
+          "level_a": 0,
+          "level_b": 0,
+          "kind": "完全相同"
+        },
+        {
+          "a": 1,
+          "b": 22,
+          "similarity": 1.0,
+          "level_a": 0,
+          "level_b": 1,
+          "kind": "改名/加注释"
+        },
+        {
+          "a": 1,
+          "b": 25,
+          "similarity": 1.0,
+          "level_a": 0,
+          "level_b": 0,
+          "kind": "完全相同"
+        },
+        {
+          "a": 1,
+          "b": 26,
+          "similarity": 1.0,
+          "level_a": 0,
+          "level_b": 1,
+          "kind": "改名/加注释"
+        },
+        {
+          "a": 1,
+          "b": 29,
+          "similarity": 1.0,
+          "level_a": 0,
+          "level_b": 0,
+          "kind": "完全相同"
+        },
+        {
+          "a": 1,
+          "b": 30,
+          "similarity": 1.0,
+          "level_a": 0,
+          "level_b": 1,
+          "kind": "改名/加注释"
+        },
+        {
+          "a": 1,
+          "b": 33,
+          "similarity": 1.0,
+          "level_a": 0,
+          "level_b": 0,
+          "kind": "完全相同"
+        },
+        {
+          "a": 1,
+          "b": 34,
+          "similarity": 1.0,
+          "level_a": 0,
+          "level_b": 1,
+          "kind": "改名/加注释"
+        },
+        {
+          "a": 1,
+          "b": 37,
+          "similarity": 1.0,
+          "level_a": 0,
+          "level_b": 0,
+          "kind": "完全相同"
+        },
+        {
+          "a": 1,
+          "b": 38,
+          "similarity": 1.0,
+          "level_a": 0,
+          "level_b": 1,
+          "kind": "改名/加注释"
+        },
+        {
+          "a": 1,
+          "b": 41,
+          "similarity": 1.0,
+          "level_a": 0,
+          "level_b": 0,
+          "kind": "完全相同"
+        },
+        {
+          "a": 1,
+          "b": 42,
+          "similarity": 1.0,
+          "level_a": 0,
+          "level_b": 1,
+          "kind": "改名/加注释"
+        },
+        {
+          "a": 1,
+          "b": 45,
+          "similarity": 1.0,
+          "level_a": 0,
+          "level_b": 0,
+          "kind": "完全相同"
+        },
+        {
+          "a": 1,
+          "b": 46,
+          "similarity": 1.0,
+          "level_a": 0,
+          "level_b": 1,
+          "kind": "改名/加注释"
+        },
+        {
+          "a": 1,
+          "b": 49,
+          "similarity": 1.0,
+          "level_a": 0,
+          "level_b": 0,
+          "kind": "完全相同"
+        },
+        {
+          "a": 1,
+          "b": 50,
+          "similarity": 1.0,
+          "level_a": 0,
+          "level_b": 1,
+          "kind": "改名/加注释"
+        },
+        {
+          "a": 1,
+          "b": 53,
+          "similarity": 1.0,
+          "level_a": 0,
+          "level_b": 0,
+          "kind": "完全相同"
+        },
+        {
+          "a": 1,
+          "b": 54,
+          "similarity": 1.0,
+          "level_a": 0,
+          "level_b": 1,
+          "kind": "改名/加注释"
+        },
+        {
+          "a": 1,
+          "b": 57,
+          "similarity": 1.0,
+          "level_a": 0,
+          "level_b": 0,
+          "kind": "完全相同"
+        },
+        {
+          "a": 1,
+          "b": 58,
+          "similarity": 1.0,
+          "level_a": 0,
+          "level_b": 1,
+          "kind": "改名/加注释"
+        },
+        {
+          "a": 2,
+          "b": 5,
+          "similarity": 1.0,
+          "level_a": 1,
+          "level_b": 0,
+          "kind": "改名/加注释"
+        },
+        {
+          "a": 2,
+          "b": 6,
+          "similarity": 1.0,
+          "level_a": 1,
+          "level_b": 1,
+          "kind": "改名/加注释"
+        },
+        {
+          "a": 2,
+          "b": 9,
+          "similarity": 1.0,
+          "level_a": 1,
+          "level_b": 0,
+          "kind": "改名/加注释"
+        },
+        {
+          "a": 2,
+          "b": 10,
+          "similarity": 1.0,
+          "level_a": 1,
+          "level_b": 1,
+          "kind": "改名/加注释"
+        },
+        {
+          "a": 2,
+          "b": 13,
+          "similarity": 1.0,
+          "level_a": 1,
+          "level_b": 0,
+          "kind": "改名/加注释"
+        },
+        {
+          "a": 2,
+          "b": 14,
+          "similarity": 1.0,
+          "level_a": 1,
+          "level_b": 1,
+          "kind": "改名/加注释"
+        },
+        {
+          "a": 2,
+          "b": 17,
+          "similarity": 1.0,
+          "level_a": 1,
+          "level_b": 0,
+          "kind": "改名/加注释"
+        },
+        {
+          "a": 2,
+          "b": 18,
+          "similarity": 1.0,
+          "level_a": 1,
+          "level_b": 1,
+          "kind": "改名/加注释"
+        },
+        {
+          "a": 2,
+          "b": 21,
+          "similarity": 1.0,
+          "level_a": 1,
+          "level_b": 0,
+          "kind": "改名/加注释"
+        },
+        {
+          "a": 2,
+          "b": 22,
+          "similarity": 1.0,
+          "level_a": 1,
+          "level_b": 1,
+          "kind": "改名/加注释"
+        },
+        {
+          "a": 2,
+          "b": 25,
+          "similarity": 1.0,
+          "level_a": 1,
+          "level_b": 0,
+          "kind": "改名/加注释"
+        }
+      ],
+      "clusters": [
+        [
+          1,
+          2,
+          5,
+          6,
+          9,
+          10,
+          13,
+          14,
+          17,
+          18,
+          21,
+          22,
+          25,
+          26,
+          29,
+          30,
+          33,
+          34,
+          37,
+          38,
+          41,
+          42,
+          45,
+          46,
+          49,
+          50,
+          53,
+          54,
+          57,
+          58
+        ],
+        [
+          3,
+          7,
+          11,
+          15,
+          19,
+          23,
+          27,
+          31,
+          35,
+          39,
+          43,
+          47,
+          51,
+          55,
+          59
+        ],
+        [
+          4,
+          8,
+          12,
+          16,
+          20,
+          24,
+          28,
+          32,
+          36,
+          40,
+          44,
+          48,
+          52,
+          56,
+          60
+        ]
+      ],
+      "elapsed_ms": 14.7,
+      "detected_by_level": {
+        "完全相同": 105,
+        "变量改名 + 注释": 330,
+        "重写等价实现": 105,
+        "结构不同的无关代码": 105
+      },
+      "conclusion": "对 60 份代码检测耗时 14.1 ms（倒排索引避免了 O(n²) 的两两比对）。阈值 0.5 下，变量改名与加注释的改写仍被 100% 命中，重写结构的等价实现相似度明显下降——这说明指纹法擅长识别「复制粘贴式抄袭」，对深度改写需要结合语法树或语义方法。"
+    },
+    "complexity": {
+      "experiment": "complexity",
+      "title": "复杂度实测与自动拟合",
+      "metrics": [
+        "time_ms"
+      ],
+      "rows": [
+        {
+          "method": "bubble",
+          "label": "冒泡/双重循环（预期 O(n²)）",
+          "best": "O(n²)",
+          "empirical_exponent": 1.869,
+          "confidence": "高",
+          "points": [
+            {
+              "n": 4000,
+              "time_ms": 2.905
+            },
+            {
+              "n": 8000,
+              "time_ms": 7.626
+            },
+            {
+              "n": 16000,
+              "time_ms": 29.519
+            },
+            {
+              "n": 32000,
+              "time_ms": 120.397
+            },
+            {
+              "n": 64000,
+              "time_ms": 475.559
+            }
+          ],
+          "ranking": [
+            {
+              "model": "O(n²)",
+              "log_rmse": 0.17604,
+              "log_c": -15.873
+            },
+            {
+              "model": "O(n log n)",
+              "log_rmse": 0.76028,
+              "log_c": -8.8241
+            },
+            {
+              "model": "O(n)",
+              "log_rmse": 0.86038,
+              "log_c": -6.1927
+            },
+            {
+              "model": "O(n³)",
+              "log_rmse": 1.11514,
+              "log_c": -25.5534
+            }
+          ]
+        },
+        {
+          "method": "merge",
+          "label": "归并排序求逆序对（预期 O(n log n)）",
+          "best": "O(n log n)",
+          "empirical_exponent": 1.22,
+          "confidence": "低",
+          "points": [
+            {
+              "n": 32000,
+              "time_ms": 1.24
+            },
+            {
+              "n": 64000,
+              "time_ms": 4.092
+            },
+            {
+              "n": 128000,
+              "time_ms": 8.414
+            },
+            {
+              "n": 256000,
+              "time_ms": 19.319
+            },
+            {
+              "n": 512000,
+              "time_ms": 39.171
+            }
+          ],
+          "ranking": [
+            {
+              "model": "O(n log n)",
+              "log_rmse": 0.1785,
+              "log_c": -12.5109
+            },
+            {
+              "model": "O(n)",
+              "log_rmse": 0.24818,
+              "log_c": -9.6832
+            },
+            {
+              "model": "O(n²)",
+              "log_rmse": 0.77417,
+              "log_c": -21.443
+            },
+            {
+              "model": "O(log n)",
+              "log_rmse": 1.11886,
+              "log_c": -0.7511
+            }
+          ]
+        }
+      ],
+      "runs": {
+        "bubble": {
+          "label": "冒泡/双重循环（预期 O(n²)）",
+          "ok": true,
+          "points": [
+            {
+              "n": 4000.0,
+              "time_ms": 2.905
+            },
+            {
+              "n": 8000.0,
+              "time_ms": 7.626
+            },
+            {
+              "n": 16000.0,
+              "time_ms": 29.519
+            },
+            {
+              "n": 32000.0,
+              "time_ms": 120.397
+            },
+            {
+              "n": 64000.0,
+              "time_ms": 475.559
+            }
+          ],
+          "best": "O(n²)",
+          "best_log_rmse": 0.17604,
+          "ranking": [
+            {
+              "model": "O(n²)",
+              "log_rmse": 0.17604,
+              "log_c": -15.873
+            },
+            {
+              "model": "O(n log n)",
+              "log_rmse": 0.76028,
+              "log_c": -8.8241
+            },
+            {
+              "model": "O(n)",
+              "log_rmse": 0.86038,
+              "log_c": -6.1927
+            },
+            {
+              "model": "O(n³)",
+              "log_rmse": 1.11514,
+              "log_c": -25.5534
+            },
+            {
+              "model": "O(log n)",
+              "log_rmse": 1.73477,
+              "log_c": 0.8562
+            },
+            {
+              "model": "O(1)",
+              "log_rmse": 1.83612,
+              "log_c": 3.4877
+            },
+            {
+              "model": "O(2ⁿ)",
+              "log_rmse": 1.83612,
+              "log_c": -24.2382
+            }
+          ],
+          "doubling": [
+            {
+              "from": 4000.0,
+              "to": 8000.0,
+              "ratio": 2.6251,
+              "exponent": 1.392
+            },
+            {
+              "from": 8000.0,
+              "to": 16000.0,
+              "ratio": 3.8708,
+              "exponent": 1.953
+            },
+            {
+              "from": 16000.0,
+              "to": 32000.0,
+              "ratio": 4.0786,
+              "exponent": 2.028
+            },
+            {
+              "from": 32000.0,
+              "to": 64000.0,
+              "ratio": 3.9499,
+              "exponent": 1.982
+            }
+          ],
+          "empirical_exponent": 1.869,
+          "confidence": "高",
+          "measurements": [
+            {
+              "n": 4000,
+              "time_ms": 2.905
+            },
+            {
+              "n": 8000,
+              "time_ms": 7.626
+            },
+            {
+              "n": 16000,
+              "time_ms": 29.519
+            },
+            {
+              "n": 32000,
+              "time_ms": 120.397
+            },
+            {
+              "n": 64000,
+              "time_ms": 475.559
+            }
+          ],
+          "startup_overhead_ms": 18.135
+        },
+        "merge": {
+          "label": "归并排序求逆序对（预期 O(n log n)）",
+          "ok": true,
+          "points": [
+            {
+              "n": 32000.0,
+              "time_ms": 1.24
+            },
+            {
+              "n": 64000.0,
+              "time_ms": 4.092
+            },
+            {
+              "n": 128000.0,
+              "time_ms": 8.414
+            },
+            {
+              "n": 256000.0,
+              "time_ms": 19.319
+            },
+            {
+              "n": 512000.0,
+              "time_ms": 39.171
+            }
+          ],
+          "best": "O(n log n)",
+          "best_log_rmse": 0.1785,
+          "ranking": [
+            {
+              "model": "O(n log n)",
+              "log_rmse": 0.1785,
+              "log_c": -12.5109
+            },
+            {
+              "model": "O(n)",
+              "log_rmse": 0.24818,
+              "log_c": -9.6832
+            },
+            {
+              "model": "O(n²)",
+              "log_rmse": 0.77417,
+              "log_c": -21.443
+            },
+            {
+              "model": "O(log n)",
+              "log_rmse": 1.11886,
+              "log_c": -0.7511
+            },
+            {
+              "model": "O(1)",
+              "log_rmse": 1.20236,
+              "log_c": 2.0766
+            },
+            {
+              "model": "O(2ⁿ)",
+              "log_rmse": 1.20236,
+              "log_c": -25.6493
+            },
+            {
+              "model": "O(n³)",
+              "log_rmse": 1.74897,
+              "log_c": -33.2027
+            }
+          ],
+          "doubling": [
+            {
+              "from": 32000.0,
+              "to": 64000.0,
+              "ratio": 3.3,
+              "exponent": 1.722
+            },
+            {
+              "from": 64000.0,
+              "to": 128000.0,
+              "ratio": 2.0562,
+              "exponent": 1.04
+            },
+            {
+              "from": 128000.0,
+              "to": 256000.0,
+              "ratio": 2.2961,
+              "exponent": 1.199
+            },
+            {
+              "from": 256000.0,
+              "to": 512000.0,
+              "ratio": 2.0276,
+              "exponent": 1.02
+            }
+          ],
+          "empirical_exponent": 1.22,
+          "confidence": "低",
+          "measurements": [
+            {
+              "n": 32000,
+              "time_ms": 1.24
+            },
+            {
+              "n": 64000,
+              "time_ms": 4.092
+            },
+            {
+              "n": 128000,
+              "time_ms": 8.414
+            },
+            {
+              "n": 256000,
+              "time_ms": 19.319
+            },
+            {
+              "n": 512000,
+              "time_ms": 39.171
+            }
+          ],
+          "startup_overhead_ms": 18.135
+        }
+      },
+      "conclusion": "实测拟合结果：冒泡/双重循环（预期 O(n²)） 判定为 O(n²)（经验指数 1.869），归并排序求逆序对（预期 O(n log n)） 判定为 O(n log n)（经验指数 1.22）。拟合在对数空间做最小二乘，对数量级差异更敏感；同时给出相邻规模耗时比，可直观校核 O(n^p) 中的 p。",
+      "elapsed_ms": 7206.35
+    }
+  }
+}

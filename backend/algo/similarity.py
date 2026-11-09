@@ -17,10 +17,10 @@
 ------
 设提交数 n、第 i 份代码 token 数 L_i、指纹数 |F_i| ≈ 2 L_i / (k + w)：
 
-    T = O(Σ L_i           规范化 + 滚动哈希 + winnowing
+    T = O(Σ L_i · w       规范化 + 滚动哈希 + 逐窗 winnowing
           + Σ |F_i|       倒排索引插入
           + Σ_q hits(q)   相似度累计，q 为重复指纹)
-      ≈ O(Σ L_i · 平均重复度)
+      w=4 固定时，逐窗扫描可视为线性；w 可变时须保留 w 因子。
     S = O(Σ |F_i| + n²)   （成对相似度矩阵，n ≤ 500 时可忽略）
 """
 
@@ -58,15 +58,13 @@ def normalize_source(code: str, language: str = "cpp", rename_identifiers: bool 
     """把源码规范化为 token 序列。``O(L)``"""
     lang = (language or "cpp").lower()
     s = code
-    # 去掉块注释与行注释
-    s = re.sub(r"/\*.*?\*/", " ", s, flags=re.S)
+    # 单次词法扫描：注释中的引号和字面量中的注释符号互不影响。
     if lang in ("python", "py"):
-        s = re.sub(r"#.*", " ", s)
+        pattern = r'''(?P<string>"""[\s\S]*?"""|\x27\x27\x27[\s\S]*?\x27\x27\x27|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|(?P<comment>\#[^\n]*)'''
     else:
-        s = re.sub(r"//.*", " ", s)
-    # 字符串 / 字符字面量 → 统一占位符（抵抗改名、换内容）
-    s = re.sub(r'"(?:\\.|[^"\\])*"', " STR ", s)
-    s = re.sub(r"'(?:\\.|[^'\\])*'", " CHR ", s)
+        pattern = r'''(?P<string>"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|(?P<comment>/\*[\s\S]*?\*/|//[^\n]*)'''
+    s = re.sub(pattern, lambda m: " " if m.lastgroup == "comment" else
+               (" CHR " if m.group().startswith("'") else " STR "), s)
     # 数字字面量归一
     s = re.sub(r"\b\d+(\.\d+)?\b", " NUM ", s)
     tokens = re.findall(r"[A-Za-z_]\w*|[+\-*/%=<>!&|^~?:;,.(){}\[\]#]+|NUM|STR|CHR", s)
@@ -117,7 +115,7 @@ def kgram_hashes(tokens: list[str], k: int = 5) -> list[int]:
 
 
 def winnow(hashes: list[int], w: int = 4) -> set[int]:
-    """Winnowing：每个宽度 w 窗口中取最小哈希作为指纹。``O(L)``
+    """Winnowing：每个宽度 w 窗口中取最小哈希作为指纹。``O(L·w)``
 
     返回指纹集合（同时保证相邻窗口共享的指纹不会重复计算）。
     """

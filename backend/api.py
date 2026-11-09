@@ -717,6 +717,7 @@ def api_problem(ctx):
         original = db.q1("SELECT * FROM subjective_submissions WHERE assignment_id=? AND problem_id=? "
                           "AND user_id=?", (aid, pid, u))
         d["my_subjective"] = (dict(original, content=jload(original["content"], {})) if original else None)
+        d["review_locked"] = bool(original and db.q1("SELECT id FROM allocations WHERE assignment_id=? AND problem_id=? AND author_id=? LIMIT 1", (aid, pid, u)))
     return ok(d)
 
 
@@ -842,9 +843,15 @@ def api_problem_update(ctx):
 @route("DELETE", "/api/problems/{id}", "teacher")
 def api_problem_delete(ctx):
     pid = ctx["params"]["id"]
-    db.ex("DELETE FROM submissions WHERE problem_id=?", (pid,))
-    db.ex("DELETE FROM test_cases WHERE problem_id=?", (pid,))
-    db.ex("DELETE FROM problems WHERE id=?", (pid,))
+    for table in ("assignment_problems", "subjective_submissions", "allocations", "reviews"):
+        if db.q1(f"SELECT 1 FROM {table} WHERE problem_id=? LIMIT 1", (pid,)):
+            return err(409, "该题已有作业或评审引用，不能直接删除。请先处理关联作业。")
+    conn = db.get_conn()
+    with conn:
+        conn.execute("DELETE FROM test_results WHERE submission_id IN (SELECT id FROM submissions WHERE problem_id=?)", (pid,))
+        conn.execute("DELETE FROM submissions WHERE problem_id=?", (pid,))
+        conn.execute("DELETE FROM test_cases WHERE problem_id=?", (pid,))
+        conn.execute("DELETE FROM problems WHERE id=?", (pid,))
     return ok()
 
 
@@ -1065,10 +1072,18 @@ def api_assignment_delete(ctx):
     aid = ctx["params"]["id"]
     if not db.q1("SELECT id FROM assignments WHERE id=?", (aid,)):
         return err(404, "作业不存在")
-    for table in ("reviews", "allocations", "anomalies", "subjective_submissions",
-                  "submissions", "assignment_problems"):
-        db.ex(f"DELETE FROM {table} WHERE assignment_id=?", (aid,))
-    db.ex("DELETE FROM assignments WHERE id=?", (aid,))
+    for table in ("allocations", "reviews"):
+        if db.q1(f"SELECT 1 FROM {table} r JOIN submissions s ON s.id=r.submission_id "
+                 "WHERE s.assignment_id=? AND r.assignment_id!=? LIMIT 1", (aid, aid)):
+            return err(409, "该作业的代码提交正在被其他作业互评引用，暂不能删除。")
+    conn = db.get_conn()
+    with conn:
+        conn.execute("DELETE FROM test_results WHERE submission_id IN (SELECT id FROM submissions WHERE assignment_id=?)", (aid,))
+        conn.execute("DELETE FROM notices WHERE assignment_id=?", (aid,))
+        for table in ("reviews", "allocations", "anomalies", "subjective_submissions",
+                      "submissions", "assignment_problems"):
+            conn.execute(f"DELETE FROM {table} WHERE assignment_id=?", (aid,))
+        conn.execute("DELETE FROM assignments WHERE id=?", (aid,))
     return ok({"id": int(aid)})
 
 
@@ -1340,6 +1355,12 @@ def api_subjective_submit(ctx):
         "SELECT * FROM subjective_submissions WHERE assignment_id=? AND problem_id=? AND user_id=?",
         (aid, pid, ctx["user"]["id"]))
     if existed:
+        if jload(existed["content"], {}) == content:
+            return ok({"id": existed["id"]})
+        # 分配开始后冻结被评版本，防止旧意见被用于一份已经更改的答案。
+        if db.q1("SELECT id FROM allocations WHERE assignment_id=? AND problem_id=? AND author_id=? LIMIT 1",
+                 (aid, pid, ctx["user"]["id"])):
+            return err(409, "该答案已进入互评，暂不能修改。请联系教师处理。")
         db.ex(
             "UPDATE subjective_submissions SET content=?, status='submitted', final_score=NULL, methods='{}', updated_at=? WHERE id=?",
             (db.jdumps(content or {}), db.now(), existed["id"]))

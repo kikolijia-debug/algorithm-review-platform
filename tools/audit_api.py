@@ -829,8 +829,8 @@ def main() -> int:
         section("12. 清理测试数据")
         if temp_problem:
             pid_new = d(temp_problem, "data", "id")
-            check("删除测试题目", f"/api/problems/{pid_new}", "DELETE", {},
-                  role="teacher", probe=lambda p: p.get("ok"))
+            check("关联作业的题目不可直接删除", f"/api/problems/{pid_new}", "DELETE", {},
+                  role="teacher", want=409)
         assigns_now = d(call("/api/assignments", role="teacher")[1], "data", default=[])
         if assigns_now:
             check("学生无权删除作业", f"/api/assignments/{assigns_now[0]['id']}", "DELETE", {},
@@ -841,6 +841,8 @@ def main() -> int:
                       if call(f"/api/assignments/{a['id']}", "DELETE", {}, role="teacher")[0] == 200)
         _report(f"清理审计临时作业（{removed}/{len(leftovers)} 条）",
                 removed == len(leftovers), "有临时作业未能删除")
+        if temp_problem and d(temp_problem, "data", "id"):
+            check("删除解除作业引用的测试题目", f"/api/problems/{pid_new}", "DELETE", {}, role="teacher", probe=lambda p: p.get("ok"))
         # 审计发过的通知也一并撤回，否则会留在学生端的「课程通知」里
         all_notices = d(call("/api/notices", role="teacher")[1], "data", default=[])
         # 作业通知的标题是「新作业：xxx」，所以按包含匹配而不是前缀匹配

@@ -423,6 +423,7 @@ function problemDetail(id, q = {}) {
     solved: mine.some((s) => s.verdict === 'Accepted'),
     assignments: assignments.map((a) => ({ id: a.id, title: a.title })),
     assignment_id: aid,
+    review_locked: !!original && DS.allocations.some((a) => a.assignment_id === Number(aid) && a.problem_id === p.id && a.author_id === session?.id),
     my_subjective: original ? { ...original, content: typeof original.content === 'string' ? JSON.parse(original.content) : original.content } : null,
   };
 }

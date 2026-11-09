@@ -19,9 +19,10 @@
 ------
 设 R 为评审数、m 为评审者数、g 为互评关系图边数、I 为标签传播轮数：
 
-    T = O(R + m·I + g·I)      S = O(m + g + R)
+    关系图部分 T = O(R + m·g·I + g log g + g·m)，S = O(m + g + R)。
+    社区传播每个节点扫描入边，簇内密度逐边查找所属社区；另须计入 EM 聚合和排序开销。
 
-全部为线性 / 近线性，可在教师端实时运行。
+当前实现面向班级规模，非线性项不应在大规模数据上忽略。
 """
 
 from __future__ import annotations
@@ -91,11 +92,9 @@ def detect(
         std_err = sigma / math.sqrt(max(1, n)) if n else sigma
         t_bias = b[rid] / std_err if std_err else 0.0
         p_bias = _two_sided_p(t_bias)
-        mean_dur = (
-            sum(float(it["duration_sec"]) for it in items if it.get("duration_sec")) / n
-            if any(it.get("duration_sec") for it in items)
-            else None
-        )
+        valid_durations = [float(it["duration_sec"]) for it in items
+                           if it.get("duration_sec") is not None and float(it["duration_sec"]) > 0]
+        mean_dur = statistics.fmean(valid_durations) if valid_durations else None
         # 评分区分度：对同一批作业打分越集中，越可能是「一键打分」
         flat = sd < 1.0 and n >= 3
         all_max = n >= 3 and all(x >= 97 for x in scores)
@@ -297,7 +296,7 @@ def _relation_graph(reviews: list[dict]) -> dict:
     """构建互评关系图，检测双向互评、重复互评与小团体。
 
     边 ``(u → v)`` 表示 u 评审了 v 的作业（u 是评审者，v 是作者）。
-    复杂度 ``O(R + m·I + g·I)``。
+    复杂度 ``O(R + m·g·I + g log g + g·m)``，含边排序和簇内边检查。
     """
     cnt: dict[tuple[int, int], int] = defaultdict(int)
     for r in reviews:
